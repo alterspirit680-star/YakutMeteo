@@ -737,11 +737,12 @@
                 TEMPERATURE: -45
             },
             LOCATIONS: [
-                { name: 'Мирный', lat: 62.534, lon: 113.961 },
-                { name: 'Удачный', lat: 66.417, lon: 112.400 },
-                { name: 'Айхал', lat: 65.933, lon: 111.483 }
+                { name: 'Мирный', lat: 62.5343, lon: 113.9610 },
+                { name: 'Удачный', lat: 66.4166, lon: 112.4000 },
+                { name: 'Айхал', lat: 65.9333, lon: 111.4833 }
             ]
         };
+
 
         const BACKUP_DATA = {
             'Мирный': {
@@ -924,33 +925,65 @@
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
             const weatherPromises = allLocations.map(location =>
                 fetchWeatherForLocation(location.lat, location.lon, location.name)
+                    .catch(error => {
+                        console.error(`Ошибка для ${location.name}:`, error);
+                        // Возвращаем backup данные в случае ошибки
+                        return {
+                            ...getBackupData(location.name),
+                            error: error.message
+                        };
+                    })
             );
 
-            const results = await Promise.allSettled(weatherPromises);
+            const results = await Promise.all(weatherPromises);
+
+            // Сбрасываем weatherData
+            weatherData = {};
 
             results.forEach((result, index) => {
-                if (result.status === 'fulfilled') {
-                    weatherData[allLocations[index].name] = result.value;
-                } else {
-                    weatherData[allLocations[index].name] = getBackupData(allLocations[index].name);
-                }
+                const locationName = allLocations[index].name;
+                weatherData[locationName] = result;
             });
 
-            apiWorking = results.some(result => result.status === 'fulfilled');
+            // Проверяем, есть ли хотя бы один успешный запрос к API
+            apiWorking = results.some(result => !result.error);
+
             return weatherData;
         }
 
+
         async function fetchWeatherForLocation(lat, lon, locationName) {
             try {
-                const response = await fetch(
-                    `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`
-                );
+                // Проверяем корректность координат
+                if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+                    throw new Error(`Некорректные координаты для ${locationName}: ${lat}, ${lon}`);
+                }
+
+                const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`;
+
+                console.log(`Запрос погоды для ${locationName}: ${url}`);
+
+                const response = await fetch(url);
 
                 if (!response.ok) {
-                    throw new Error(`HTTP error: ${response.status}`);
+                    // Более детальная обработка ошибок
+                    if (response.status === 401) {
+                        throw new Error('Неверный API ключ');
+                    } else if (response.status === 404) {
+                        throw new Error('Локация не найдена');
+                    } else if (response.status === 429) {
+                        throw new Error('Превышен лимит запросов');
+                    } else {
+                        throw new Error(`HTTP error: ${response.status} - ${response.statusText}`);
+                    }
                 }
 
                 const data = await response.json();
+
+                // Проверяем, что получили корректные данные
+                if (!data.main || !data.weather) {
+                    throw new Error('Некорректный ответ от API');
+                }
 
                 return {
                     location: locationName,
@@ -958,13 +991,14 @@
                     feels_like: Math.round(data.main.feels_like),
                     humidity: data.main.humidity,
                     pressure: Math.round(data.main.pressure * 0.750062),
-                    wind_speed: data.wind.speed,
+                    wind_speed: data.wind.speed || 0,
                     weather_icon: data.weather[0].icon,
                     weather_description: data.weather[0].description,
                     timestamp: new Date().toISOString(),
                     forecast: generateForecast(data.main.temp)
                 };
             } catch (error) {
+                console.error(`Ошибка получения данных для ${locationName}:`, error);
                 throw error;
             }
         }
@@ -1335,17 +1369,30 @@
 
         function updateApiStatus() {
             const statusElement = document.getElementById('apiStatus');
+            const allLocations = [...appConfig.LOCATIONS, ...customLocations];
+
+            const failedLocations = allLocations.filter(location =>
+                weatherData[location.name] && weatherData[location.name].error
+            );
 
             if (apiWorking) {
-                statusElement.innerHTML = `
-                    <div class="api-status success">
-                        ✅ Данные загружены с OpenWeatherMap API
-                    </div>
-                `;
+                if (failedLocations.length > 0) {
+                    statusElement.innerHTML = `
+                        <div class="api-status warning">
+                            ⚠️ Частичная загрузка данных. Ошибки для: ${failedLocations.map(loc => loc.name).join(', ')}
+                        </div>
+                    `;
+                } else {
+                    statusElement.innerHTML = `
+                        <div class="api-status success">
+                            ✅ Все данные загружены с OpenWeatherMap API
+                        </div>
+                    `;
+                }
             } else {
                 statusElement.innerHTML = `
                     <div class="api-status warning">
-                        ⚠️ Ошибка загрузки данных. Используются резервные данные.
+                        ⚠️ Все данные загружены из резервного источника
                     </div>
                 `;
             }
@@ -1483,17 +1530,41 @@
             try {
                 loadConfig();
                 applyConfigToUI();
-                await refreshData();
+
+                // Показываем индикатор загрузки
+                document.getElementById('loadingIndicator').style.display = 'block';
+                document.getElementById('weatherDashboard').style.display = 'none';
+
+                await fetchWeatherData();
+                lastUpdateTime = getYakutskTime();
+
+                updateApiStatus();
+                updateLastUpdateTime();
+                updateNextUpdateInfo();
+
+                // Скрываем индикатор и показываем данные
+                document.getElementById('loadingIndicator').style.display = 'none';
+                document.getElementById('weatherDashboard').style.display = 'grid';
+                document.getElementById('chartsSection').style.display = 'block';
+                document.getElementById('advancedSection').style.display = 'block';
+
+                renderWeatherCards();
+                createTemperatureChart();
+                createRadarChart();
+                renderScientificCalculations();
+
             } catch (error) {
                 console.error('Error initializing app:', error);
                 document.getElementById('loadingIndicator').innerHTML =
                     'Ошибка загрузки данных. Используются резервные данные.';
 
-                updateApiStatus();
+                // Все равно пытаемся показать данные
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('weatherDashboard').style.display = 'grid';
                 document.getElementById('chartsSection').style.display = 'block';
                 document.getElementById('advancedSection').style.display = 'block';
+
+                updateApiStatus();
                 renderWeatherCards();
                 createTemperatureChart();
                 createRadarChart();
