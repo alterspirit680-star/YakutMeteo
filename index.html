@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Метеостанция Якутии - АЛРОСА</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Заменяем Leaflet на Яндекс Карты -->
+    <script src="https://api-maps.yandex.ru/2.1/?apikey=ваш_api_ключ&lang=ru_RU" type="text/javascript"></script>
     <style>
         :root {
             --primary: #1a5276;
@@ -523,6 +523,15 @@
             margin: 10px 0;
         }
 
+        /* Стили для Яндекс Карт */
+        .ymaps-2-1-79-map {
+            border-radius: 8px;
+        }
+
+        .ymaps-2-1-79-inner-panes {
+            border-radius: 8px;
+        }
+
         @media (max-width: 768px) {
             .dashboard {
                 grid-template-columns: 1fr;
@@ -743,7 +752,6 @@
             ]
         };
 
-
         const BACKUP_DATA = {
             'Мирный': {
                 temp: -42,
@@ -796,39 +804,39 @@
         let lastUpdateTime = null;
         let nextUpdateTime = null;
         let updateIntervalId = null;
-        let appConfig = { ...DEFAULT_CONFIG };
+        let appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
         let customLocations = [];
-        let map = null;
-        let marker = null;
+        let yandexMap = null;
+        let yandexMapObject = null;
+        let yandexPlacemark = null;
 
         function loadConfig() {
             const savedConfig = localStorage.getItem('weatherAppConfig');
             const savedLocations = localStorage.getItem('customLocations');
 
-            // ВАЖНО: Создаем глубокую копию DEFAULT_CONFIG
+            // Всегда используем глубокую копию DEFAULT_CONFIG
             appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
             if (savedConfig) {
                 try {
                     const parsedConfig = JSON.parse(savedConfig);
-                    // Объединяем настройки, сохраняя структуру DEFAULT_CONFIG
                     appConfig.UPDATE_INTERVAL = parsedConfig.UPDATE_INTERVAL || DEFAULT_CONFIG.UPDATE_INTERVAL;
                     appConfig.ALERT_THRESHOLDS = {
                         ...DEFAULT_CONFIG.ALERT_THRESHOLDS,
                         ...parsedConfig.ALERT_THRESHOLDS
                     };
-                    // Сохраняем оригинальные локации из DEFAULT_CONFIG
-                    appConfig.LOCATIONS = [...DEFAULT_CONFIG.LOCATIONS];
                 } catch (e) {
                     console.error('Ошибка загрузки конфигурации:', e);
-                    // В случае ошибки используем DEFAULT_CONFIG
-                    appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
                 }
             }
 
             if (savedLocations) {
                 try {
                     customLocations = JSON.parse(savedLocations);
+                // Проверяем структуру пользовательских локаций
+                    customLocations = customLocations.filter(loc =>
+                    loc && loc.name && typeof loc.lat === 'number' && typeof loc.lon === 'number'
+                );
                 } catch (e) {
                     console.error('Ошибка загрузки пользовательских локаций:', e);
                     customLocations = [];
@@ -840,7 +848,6 @@
 
             return appConfig;
         }
-
 
         function saveConfig() {
             localStorage.setItem('weatherAppConfig', JSON.stringify(appConfig));
@@ -974,7 +981,6 @@
 
             return weatherData;
         }
-
 
         async function fetchWeatherForLocation(lat, lon, locationName) {
             try {
@@ -1428,15 +1434,6 @@
             }
         }
 
-        function resetConfig() {
-            localStorage.removeItem('weatherAppConfig');
-            localStorage.removeItem('customLocations');
-            appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
-            customLocations = [];
-            saveConfig();
-            console.log('Конфигурация сброшена к значениям по умолчанию');
-        }
-
         async function refreshData() {
             const refreshBtn = document.getElementById('refreshBtn');
             const refreshIcon = document.getElementById('refreshIcon');
@@ -1473,23 +1470,54 @@
             }
         }
 
-        function initMap() {
-            map = L.map('map').setView([62.034, 129.732], 5);
+        // Инициализация Яндекс Карт
+        function initYandexMap() {
+            if (!ymaps) {
+                console.error('Yandex Maps API не загружена');
+                return;
+            }
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(map);
+            ymaps.ready(function() {
+                // Создаем карту
+                yandexMap = new ymaps.Map('map', {
+                    center: [62.0340, 129.7320], // Центр Якутии
+                    zoom: 5,
+                    controls: ['zoomControl', 'fullscreenControl']
+                }, {
+                    searchControlProvider: 'yandex#search'
+                });
 
-            marker = L.marker([62.034, 129.732]).addTo(map);
+                // Создаем метку
+                yandexPlacemark = new ymaps.Placemark([62.0340, 129.7320], {
+                    balloonContent: 'Выбранная точка'
+                }, {
+                    preset: 'islands#blueIcon',
+                    draggable: true
+                });
 
-            map.on('click', function(e) {
-                const lat = e.latlng.lat;
-                const lng = e.latlng.lng;
+                // Добавляем метку на карту
+                yandexMap.geoObjects.add(yandexPlacemark);
 
-                marker.setLatLng([lat, lng]);
-                document.getElementById('coordinates').textContent =
-                    `Координаты: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+                // Обработчик перемещения метки
+                yandexPlacemark.events.add('dragend', function () {
+                    const coords = yandexPlacemark.geometry.getCoordinates();
+                    updateCoordinates(coords[0], coords[1]);
+                });
+
+                // Обработчик клика по карте
+                yandexMap.events.add('click', function (e) {
+                    const coords = e.get('coords');
+                    yandexPlacemark.geometry.setCoordinates(coords);
+                    updateCoordinates(coords[0], coords[1]);
+                });
+
+                console.log('Яндекс Карта инициализирована');
             });
+        }
+
+        function updateCoordinates(lat, lon) {
+            document.getElementById('coordinates').textContent =
+                `Координаты: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
         }
 
         function addCustomLocation() {
@@ -1517,7 +1545,8 @@
                     return;
                 }
 
-                if (customLocations.some(loc => loc.name === locationName)) {
+                if (customLocations.some(loc => loc.name === locationName) ||
+                    appConfig.LOCATIONS.some(loc => loc.name === locationName)) {
                     alert('Точка с таким названием уже существует');
                     return;
                 }
@@ -1529,6 +1558,7 @@
                 document.getElementById('mapModal').style.display = 'none';
 
                 refreshData();
+                alert(`Точка "${locationName}" успешно добавлена!`);
             }
         }
 
@@ -1542,8 +1572,8 @@
 
         function openMapModal() {
             document.getElementById('mapModal').style.display = 'flex';
-            if (!map) {
-                setTimeout(initMap, 100);
+            if (!yandexMap) {
+                setTimeout(initYandexMap, 100);
             }
         }
 
@@ -1563,6 +1593,31 @@
 
             closeSettingsModal();
             alert('Настройки успешно сохранены!');
+        }
+
+        // Функция для принудительного сброса конфигурации
+        function resetConfig() {
+            localStorage.removeItem('weatherAppConfig');
+            localStorage.removeItem('customLocations');
+            appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+            customLocations = [];
+            saveConfig();
+            console.log('Конфигурация сброшена к значениям по умолчанию');
+            location.reload();
+        }
+
+        // Добавляем кнопку для сброса конфигурации (можно убрать после отладки)
+        function addDebugButton() {
+            const debugBtn = document.createElement('button');
+            debugBtn.textContent = 'Сбросить настройки';
+            debugBtn.className = 'btn btn-outline';
+            debugBtn.style.marginLeft = '10px';
+            debugBtn.onclick = function() {
+                if (confirm('Сбросить все настройки к значениям по умолчанию?')) {
+                    resetConfig();
+                }
+            };
+            document.querySelector('.control-buttons').appendChild(debugBtn);
         }
 
         async function initializeApp() {
@@ -1594,6 +1649,9 @@
                 createRadarChart();
                 renderScientificCalculations();
 
+                // Добавляем кнопку отладки (можно удалить в продакшене)
+                addDebugButton();
+
             } catch (error) {
                 console.error('Error initializing app:', error);
                 document.getElementById('loadingIndicator').innerHTML =
@@ -1611,7 +1669,6 @@
                 createRadarChart();
                 renderScientificCalculations();
             }
-            
         }
 
         document.getElementById('loginBtn').addEventListener('click', function() {
