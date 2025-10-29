@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Метеостанция Якутии - АЛРОСА</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Заменяем Leaflet на Яндекс Карты -->
-    <script src="https://api-maps.yandex.ru/2.1/?apikey=ваш_api_ключ&lang=ru_RU" type="text/javascript"></script>
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
     <style>
         :root {
             --primary: #1a5276;
@@ -394,6 +393,12 @@
             border: 1px solid var(--warning);
         }
 
+        .api-status.error {
+            background-color: rgba(231, 76, 60, 0.1);
+            color: var(--danger);
+            border: 1px solid var(--danger);
+        }
+
         .refresh-spin {
             animation: spin 1s linear infinite;
         }
@@ -522,6 +527,26 @@
             border-radius: 4px;
             margin: 10px 0;
         }
+
+        .data-source-info {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .source-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .source-openweather { background-color: #3498db; }
+        .source-weathergov { background-color: #2ecc71; }
+        .source-accuweather { background-color: #e74c3c; }
+        .source-backup { background-color: #f39c12; }
 
         /* Стили для Яндекс Карт */
         .ymaps-2-1-79-map {
@@ -696,6 +721,20 @@
                 </div>
             </div>
 
+            <div class="settings-group">
+                <h3>Источники данных</h3>
+                <div class="settings-row">
+                    <div class="settings-label">Приоритет источников:</div>
+                    <div class="settings-control">
+                        <select id="dataSourcePriority">
+                            <option value="openweather,weathergov,accuweather">OpenWeather → Weather.gov → AccuWeather</option>
+                            <option value="weathergov,openweather,accuweather">Weather.gov → OpenWeather → AccuWeather</option>
+                            <option value="accuweather,openweather,weathergov">AccuWeather → OpenWeather → Weather.gov</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
             <div class="settings-actions">
                 <button class="btn btn-cancel" id="cancelSettings">Отмена</button>
                 <button class="btn btn-save" id="saveSettings">Сохранить</button>
@@ -738,13 +777,14 @@
     </footer>
 
     <script>
+        // Конфигурация приложения
         const DEFAULT_CONFIG = {
-            API_KEY: '7253447bdd5d5b3a73b932e71fcaa87b',
             UPDATE_INTERVAL: 10,
             ALERT_THRESHOLDS: {
                 WIND_SPEED: 15,
                 TEMPERATURE: -45
             },
+            DATA_SOURCE_PRIORITY: "yandex,openweather,weathergov,accuweather",
             LOCATIONS: [
                 { name: 'Мирный', lat: 62.5343, lon: 113.9610 },
                 { name: 'Удачный', lat: 66.4166, lon: 112.4000 },
@@ -752,6 +792,63 @@
             ]
         };
 
+        // API ключи (в реальном приложении хранить на сервере)
+        const API_KEYS = {
+            OPENWEATHER: '7253447bdd5d5b3a73b932e71fcaa87b',
+            ACCUWEATHER: 'zpka_30b138fd31e640a09070c79087ba339a_122d930c'
+            YANDEX_WEATHER: '2eedcd80-4ca8-40bb-b229-b0a6e59a760e'
+        };
+
+        // Функция для Яндекс Погоды
+        async function fetchFromYandexWeather(lat, lon) {
+            try {
+                // Яндекс Погода API требует ключ
+                const url = `https://api.weather.yandex.ru/v2/forecast?lat=${lat}&lon=${lon}&extra=true`;
+
+                const response = await fetch(url, {
+                    headers: {
+                        'X-Yandex-API-Key': API_KEYS.YANDEX_WEATHER
+                    }
+                });
+
+                if (!response.ok) throw new Error(`Yandex Weather: ${response.status}`);
+
+                const data = await response.json();
+
+                return {
+                    temp: Math.round(data.fact.temp),
+                    feels_like: Math.round(data.fact.feels_like),
+                    humidity: data.fact.humidity,
+                    pressure: Math.round(data.fact.pressure_mm),
+                    wind_speed: data.fact.wind_speed,
+                    weather_icon: getYandexWeatherIcon(data.fact.icon),
+                    weather_description: data.fact.condition,
+                    timestamp: new Date().toISOString(),
+                    forecast: generateYandexForecast(data.forecasts)
+                };
+            } catch (error) {
+                throw new Error('Yandex Weather unavailable');
+            }
+        }
+
+        function getYandexWeatherIcon(iconCode) {
+            const iconMap = {
+                'skc': '01d', 'ovc': '04d', 'bkn': '03d',
+                'bkn_n': '03n', 'ovc_n': '04n', 'skc_n': '01n',
+                'light-rain': '10d', 'rain': '09d', 'heavy-rain': '09d',
+                'snow': '13d', 'light-snow': '13d', 'snow-showers': '13d'
+            };
+            return iconMap[iconCode] || '02d';
+        }
+
+        function generateYandexForecast(forecasts) {
+            return forecasts.slice(0, 3).map(day => ({
+                time: formatDate(new Date(day.date)),
+                temp: Math.round((day.parts.day.temp_max + day.parts.day.temp_min) / 2)
+            }));
+        }
+
+        // Резервные данные для Якутии
         const BACKUP_DATA = {
             'Мирный': {
                 temp: -42,
@@ -797,6 +894,7 @@
             }
         };
 
+        // Глобальные переменные
         let weatherData = {};
         let temperatureChart = null;
         let radarChart = null;
@@ -807,14 +905,14 @@
         let appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
         let customLocations = [];
         let yandexMap = null;
-        let yandexMapObject = null;
         let yandexPlacemark = null;
+        let currentDataSource = '';
 
+        // Функции работы с конфигурацией
         function loadConfig() {
             const savedConfig = localStorage.getItem('weatherAppConfig');
             const savedLocations = localStorage.getItem('customLocations');
 
-            // Всегда используем глубокую копию DEFAULT_CONFIG
             appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
             if (savedConfig) {
@@ -825,6 +923,7 @@
                         ...DEFAULT_CONFIG.ALERT_THRESHOLDS,
                         ...parsedConfig.ALERT_THRESHOLDS
                     };
+                    appConfig.DATA_SOURCE_PRIORITY = parsedConfig.DATA_SOURCE_PRIORITY || DEFAULT_CONFIG.DATA_SOURCE_PRIORITY;
                 } catch (e) {
                     console.error('Ошибка загрузки конфигурации:', e);
                 }
@@ -833,18 +932,14 @@
             if (savedLocations) {
                 try {
                     customLocations = JSON.parse(savedLocations);
-                // Проверяем структуру пользовательских локаций
                     customLocations = customLocations.filter(loc =>
-                    loc && loc.name && typeof loc.lat === 'number' && typeof loc.lon === 'number'
-                );
+                        loc && loc.name && typeof loc.lat === 'number' && typeof loc.lon === 'number'
+                    );
                 } catch (e) {
                     console.error('Ошибка загрузки пользовательских локаций:', e);
                     customLocations = [];
                 }
             }
-
-            console.log('Загруженная конфигурация:', appConfig);
-            console.log('Пользовательские локации:', customLocations);
 
             return appConfig;
         }
@@ -858,29 +953,16 @@
             document.getElementById('updateInterval').value = appConfig.UPDATE_INTERVAL;
             document.getElementById('maxWindSpeed').value = appConfig.ALERT_THRESHOLDS.WIND_SPEED;
             document.getElementById('minTemperature').value = appConfig.ALERT_THRESHOLDS.TEMPERATURE;
+            document.getElementById('dataSourcePriority').value = appConfig.DATA_SOURCE_PRIORITY;
             setupAutoUpdate();
         }
 
-        function setupAutoUpdate() {
-            if (updateIntervalId) {
-                clearInterval(updateIntervalId);
-                updateIntervalId = null;
-            }
-
-            if (appConfig.UPDATE_INTERVAL > 0) {
-                const intervalMs = appConfig.UPDATE_INTERVAL * 60 * 1000;
-                updateIntervalId = setInterval(refreshData, intervalMs);
-            }
-
-            updateNextUpdateInfo();
-        }
-
+        // Функции времени
         function getYakutskTime() {
             const now = new Date();
             const yakutskOffset = 9 * 60;
             const localOffset = now.getTimezoneOffset();
-            const yakutskTime = new Date(now.getTime() + (localOffset + yakutskOffset) * 60000);
-            return yakutskTime;
+            return new Date(now.getTime() + (localOffset + yakutskOffset) * 60000);
         }
 
         function formatTime(date) {
@@ -905,7 +987,6 @@
         function formatTimeUntil(targetDate) {
             const now = new Date();
             const diffMs = targetDate - now;
-
             if (diffMs <= 0) return 'сейчас';
 
             const diffSecs = Math.floor(diffMs / 1000);
@@ -946,97 +1027,174 @@
             }
         }
 
+        // Функции работы с API погоды
         async function fetchWeatherData() {
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
+            const dataSources = appConfig.DATA_SOURCE_PRIORITY.split(',');
 
-            console.log('Все локации для запроса:', allLocations);
+            console.log('Запрос данных для локаций:', allLocations);
+            console.log('Приоритет источников:', dataSources);
 
-            // Проверяем структуру каждой локации
-            allLocations.forEach((location, index) => {
-                console.log(`Локация ${index}:`, location);
-                if (!location.lat || !location.lon) {
-                    console.error(`Локация "${location.name}" имеет некорректные координаты:`, location);
-                }
-            });
-
-            const weatherPromises = allLocations.map(location => {
-                return fetchWeatherForLocation(location.lat, location.lon, location.name);
-            });
+            const weatherPromises = allLocations.map(location =>
+                fetchWeatherFromMultipleSources(location.lat, location.lon, location.name, dataSources)
+            );
 
             const results = await Promise.all(weatherPromises);
 
-            // Сбрасываем weatherData
             weatherData = {};
-
             results.forEach((result, index) => {
                 const locationName = allLocations[index].name;
                 weatherData[locationName] = result;
             });
 
-            // Проверяем, есть ли хотя бы один успешный запрос к API (не из backup)
+            // Определяем общий статус API
             apiWorking = results.some(result => !result.fromBackup);
+            currentDataSource = results[0]?.dataSource || 'backup';
 
             console.log('Результаты запросов:', weatherData);
-            console.log('API работает:', apiWorking);
+            console.log('API работает:', apiWorking, 'Источник:', currentDataSource);
 
             return weatherData;
         }
 
-        async function fetchWeatherForLocation(lat, lon, locationName) {
-            try {
-                console.log(`Запрос данных для ${locationName}: lat=${lat}, lon=${lon}`);
-
-                // Проверяем корректность координат более тщательно
-                if (lat === undefined || lon === undefined || lat === null || lon === null ||
-                    isNaN(parseFloat(lat)) || isNaN(parseFloat(lon))) {
-                    throw new Error(`Некорректные координаты для "${locationName}": lat=${lat}, lon=${lon}`);
-                }
-
-                const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`;
-
-                console.log(`URL запроса для ${locationName}:`, url);
-
-                const response = await fetch(url);
-
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('Неверный API ключ');
-                    } else if (response.status === 404) {
-                        throw new Error('Локация не найдена');
-                    } else if (response.status === 429) {
-                        throw new Error('Превышен лимит запросов');
-                    } else {
-                        throw new Error(`HTTP error: ${response.status} - ${response.statusText}`);
+        async function fetchWeatherFromMultipleSources(lat, lon, locationName, dataSources) {
+            for (const source of dataSources) {
+                try {
+                    let data;
+                    switch (source) {
+                        case 'yandex':
+                            data = await fetchFromYandexWeather(lat, lon);
+                            break;
+                        case 'gismeteo':
+                            data = await fetchFromGismeteo(lat, lon);
+                            break;
+                        case 'openweather':
+                            data = await fetchFromOpenWeather(lat, lon);
+                            break;
+                        case 'accuweather':
+                            data = await fetchFromAccuWeather(lat, lon);
+                            break;
+                        case 'yandex_parse':
+                            data = await fetchFromYandexParsing(lat, lon, locationName);
+                            break;
                     }
+
+                    if (data) {
+                        console.log(`Данные получены из ${source} для ${locationName}`);
+                        return {
+                            ...data,
+                            location: locationName,
+                            dataSource: source,
+                            fromBackup: false
+                        };
+                    }
+                } catch (error) {
+                    console.warn(`Источник ${source} не доступен для ${locationName}:`, error);
+                    continue;
                 }
+            }
+
+            // Резервные данные
+            return {
+                ...getBackupData(locationName),
+                dataSource: 'backup',
+                fromBackup: true
+            };
+        }
+
+        async function fetchFromOpenWeather(lat, lon) {
+            const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEYS.OPENWEATHER}&units=metric&lang=ru`;
+
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`OpenWeather: ${response.status}`);
+
+            const data = await response.json();
+
+            return {
+                temp: Math.round(data.main.temp),
+                feels_like: Math.round(data.main.feels_like),
+                humidity: data.main.humidity,
+                pressure: Math.round(data.main.pressure * 0.750062),
+                wind_speed: data.wind.speed || 0,
+                weather_icon: data.weather[0].icon,
+                weather_description: data.weather[0].description,
+                timestamp: new Date().toISOString(),
+                forecast: generateForecast(data.main.temp)
+            };
+        }
+
+        async function fetchFromWeatherGov(lat, lon) {
+            // Weather.gov предоставляет данные только для США
+            // Для Якутии используем прокси или альтернативный подход
+            try {
+                // Пробуем получить данные через CORS прокси
+                const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+                const targetUrl = `https://api.weather.gov/points/${lat},${lon}`;
+
+                const response = await fetch(proxyUrl + targetUrl);
+                if (!response.ok) throw new Error('Weather.gov not available for this location');
 
                 const data = await response.json();
+                // Дополнительная обработка данных weather.gov...
 
-                if (!data.main || !data.weather) {
-                    throw new Error('Некорректный ответ от API');
-                }
+                return null; // Временно возвращаем null
+            } catch (error) {
+                throw new Error('Weather.gov unavailable');
+            }
+        }
+
+        async function fetchFromAccuWeather(lat, lon) {
+            // AccuWeather требует location key
+            try {
+                // Сначала получаем location key
+                const locationUrl = `http://dataservice.accuweather.com/locations/v1/cities/geoposition/search?apikey=${API_KEYS.ACCUWEATHER}&q=${lat},${lon}`;
+                const locationResponse = await fetch(locationUrl);
+
+                if (!locationResponse.ok) throw new Error('AccuWeather location error');
+
+                const locationData = await locationResponse.json();
+                const locationKey = locationData.Key;
+
+                // Затем получаем погоду
+                const weatherUrl = `http://dataservice.accuweather.com/currentconditions/v1/${locationKey}?apikey=${API_KEYS.ACCUWEATHER}&details=true`;
+                const weatherResponse = await fetch(weatherUrl);
+
+                if (!weatherResponse.ok) throw new Error('AccuWeather data error');
+
+                const weatherData = await weatherResponse.json();
+                const current = weatherData[0];
 
                 return {
-                    location: locationName,
-                    temp: Math.round(data.main.temp),
-                    feels_like: Math.round(data.main.feels_like),
-                    humidity: data.main.humidity,
-                    pressure: Math.round(data.main.pressure * 0.750062),
-                    wind_speed: data.wind.speed || 0,
-                    weather_icon: data.weather[0].icon,
-                    weather_description: data.weather[0].description,
+                    temp: Math.round(current.Temperature.Metric.Value),
+                    feels_like: Math.round(current.RealFeelTemperature.Metric.Value),
+                    humidity: current.RelativeHumidity,
+                    pressure: Math.round(current.Pressure.Metric.Value * 0.750062),
+                    wind_speed: current.Wind.Speed.Metric.Value,
+                    weather_icon: getAccuWeatherIcon(current.WeatherIcon),
+                    weather_description: current.WeatherText,
                     timestamp: new Date().toISOString(),
-                    forecast: generateForecast(data.main.temp)
+                    forecast: generateForecast(current.Temperature.Metric.Value)
                 };
             } catch (error) {
-                console.error(`Ошибка получения данных для "${locationName}":`, error);
-                // Возвращаем backup данные с информацией об ошибке
-                return {
-                    ...getBackupData(locationName),
-                    error: error.message,
-                    fromBackup: true
-                };
+                throw new Error('AccuWeather unavailable');
             }
+        }
+
+        function getAccuWeatherIcon(iconCode) {
+            // Преобразование кодов AccuWeather в стандартные
+            const iconMap = {
+                1: '01d', 2: '02d', 3: '03d', 4: '04d',
+                5: '09d', 6: '09d', 7: '09d', 8: '10d',
+                11: '11d', 12: '10d', 13: '13d', 14: '13d',
+                15: '13d', 16: '13d', 17: '11d', 18: '10d',
+                19: '50d', 20: '50d', 21: '50d', 22: '50d',
+                23: '13d', 24: '13d', 25: '13d', 26: '13d',
+                29: '13d', 30: '01d', 31: '01n', 32: '02d',
+                33: '02n', 34: '03d', 35: '03n', 36: '04d',
+                37: '04n', 38: '04d', 39: '09d', 40: '09d',
+                41: '13d', 42: '13d', 43: '13d', 44: '13d'
+            };
+            return iconMap[iconCode] || '02d';
         }
 
         function generateForecast(currentTemp) {
@@ -1059,7 +1217,6 @@
         function getBackupData(locationName) {
             const data = BACKUP_DATA[locationName] || BACKUP_DATA['Мирный'];
             return {
-                location: locationName,
                 temp: data.temp,
                 feels_like: data.feels_like,
                 humidity: data.humidity,
@@ -1072,11 +1229,11 @@
             };
         }
 
+        // Научные расчеты
         function calculateWindChill(temperature, windSpeed) {
             if (temperature > 10 || windSpeed < 1.3) {
                 return temperature;
             }
-
             return 13.12 + 0.6215 * temperature - 11.37 * Math.pow(windSpeed, 0.16) +
                    0.3965 * temperature * Math.pow(windSpeed, 0.16);
         }
@@ -1096,6 +1253,7 @@
             return (b * alpha) / (a - alpha);
         }
 
+        // Функции оповещений и рекомендаций
         function getAlertType(locationData) {
             const windSpeed = locationData.wind_speed;
             const temperature = locationData.temp;
@@ -1139,6 +1297,27 @@
             return iconMap[weatherCode] || '🌤️';
         }
 
+        function getDataSourceColor(source) {
+            const colorMap = {
+                'openweather': 'source-openweather',
+                'weathergov': 'source-weathergov',
+                'accuweather': 'source-accuweather',
+                'backup': 'source-backup'
+            };
+            return colorMap[source] || 'source-backup';
+        }
+
+        function getDataSourceName(source) {
+            const nameMap = {
+                'openweather': 'OpenWeather',
+                'weathergov': 'Weather.gov',
+                'accuweather': 'AccuWeather',
+                'backup': 'Резервные данные'
+            };
+            return nameMap[source] || 'Неизвестный источник';
+        }
+
+        // Рендеринг интерфейса
         function renderWeatherCards() {
             const dashboard = document.getElementById('weatherDashboard');
             dashboard.innerHTML = '';
@@ -1165,6 +1344,7 @@
                 const pressure = locationData.pressure;
                 const weatherIcon = getWeatherIcon(locationData.weather_icon);
                 const forecast = locationData.forecast || [];
+                const dataSource = locationData.dataSource || 'backup';
 
                 const windChill = calculateWindChill(temp, windSpeed);
                 const frostbiteTime = calculateFrostbiteTime(windChill);
@@ -1209,6 +1389,10 @@
                 dashboard.innerHTML += `
                     <div class="weather-card">
                         <h2>${location.name} ${deleteButton}<span class="time">${formatTime(getYakutskTime())}</span></h2>
+                        <div class="data-source-info">
+                            <span class="source-indicator ${getDataSourceColor(dataSource)}"></span>
+                            Источник: ${getDataSourceName(dataSource)}
+                        </div>
                         <div class="weather-main">
                             <div class="temperature">${temp}°C</div>
                             <div class="weather-icon">${weatherIcon}</div>
@@ -1251,6 +1435,7 @@
             }
         }
 
+        // Графики
         function createTemperatureChart() {
             const ctx = document.getElementById('temperatureChart').getContext('2d');
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
@@ -1415,62 +1600,27 @@
                 if (failedLocations.length > 0) {
                     statusElement.innerHTML = `
                         <div class="api-status warning">
-                            ⚠️ Частичная загрузка данных. Ошибки для: ${failedLocations.map(loc => loc.name).join(', ')}
+                            ⚠️ Частичная загрузка данных. Используется источник: ${getDataSourceName(currentDataSource)}.
+                            Ошибки для: ${failedLocations.map(loc => loc.name).join(', ')}
                         </div>
                     `;
                 } else {
                     statusElement.innerHTML = `
                         <div class="api-status success">
-                            ✅ Все данные загружены с OpenWeatherMap API
+                            ✅ Все данные загружены из источника: ${getDataSourceName(currentDataSource)}
                         </div>
                     `;
                 }
             } else {
                 statusElement.innerHTML = `
-                    <div class="api-status warning">
-                        ⚠️ Все данные загружены из резервного источника
+                    <div class="api-status error">
+                        ⚠️ Все данные загружены из резервного источника. Проверьте подключение к интернету.
                     </div>
                 `;
             }
         }
 
-        async function refreshData() {
-            const refreshBtn = document.getElementById('refreshBtn');
-            const refreshIcon = document.getElementById('refreshIcon');
-
-            refreshBtn.disabled = true;
-            refreshIcon.classList.add('refresh-spin');
-
-            try {
-                document.getElementById('loadingIndicator').style.display = 'block';
-                document.getElementById('weatherDashboard').style.display = 'none';
-
-                await fetchWeatherData();
-                lastUpdateTime = getYakutskTime();
-
-                updateApiStatus();
-                updateLastUpdateTime();
-                updateNextUpdateInfo();
-
-                document.getElementById('loadingIndicator').style.display = 'none';
-                document.getElementById('weatherDashboard').style.display = 'grid';
-                document.getElementById('chartsSection').style.display = 'block';
-                document.getElementById('advancedSection').style.display = 'block';
-
-                renderWeatherCards();
-                createTemperatureChart();
-                createRadarChart();
-                renderScientificCalculations();
-
-            } catch (error) {
-                console.error('Error refreshing data:', error);
-            } finally {
-                refreshBtn.disabled = false;
-                refreshIcon.classList.remove('refresh-spin');
-            }
-        }
-
-        // Инициализация Яндекс Карт
+        // Яндекс Карты
         function initYandexMap() {
             if (!ymaps) {
                 console.error('Yandex Maps API не загружена');
@@ -1478,16 +1628,14 @@
             }
 
             ymaps.ready(function() {
-                // Создаем карту
                 yandexMap = new ymaps.Map('map', {
-                    center: [62.0340, 129.7320], // Центр Якутии
+                    center: [62.0340, 129.7320],
                     zoom: 5,
                     controls: ['zoomControl', 'fullscreenControl']
                 }, {
                     searchControlProvider: 'yandex#search'
                 });
 
-                // Создаем метку
                 yandexPlacemark = new ymaps.Placemark([62.0340, 129.7320], {
                     balloonContent: 'Выбранная точка'
                 }, {
@@ -1495,16 +1643,13 @@
                     draggable: true
                 });
 
-                // Добавляем метку на карту
                 yandexMap.geoObjects.add(yandexPlacemark);
 
-                // Обработчик перемещения метки
                 yandexPlacemark.events.add('dragend', function () {
                     const coords = yandexPlacemark.geometry.getCoordinates();
                     updateCoordinates(coords[0], coords[1]);
                 });
 
-                // Обработчик клика по карте
                 yandexMap.events.add('click', function (e) {
                     const coords = e.get('coords');
                     yandexPlacemark.geometry.setCoordinates(coords);
@@ -1562,6 +1707,58 @@
             }
         }
 
+        // Основные функции приложения
+        function setupAutoUpdate() {
+            if (updateIntervalId) {
+                clearInterval(updateIntervalId);
+                updateIntervalId = null;
+            }
+
+            if (appConfig.UPDATE_INTERVAL > 0) {
+                const intervalMs = appConfig.UPDATE_INTERVAL * 60 * 1000;
+                updateIntervalId = setInterval(refreshData, intervalMs);
+            }
+
+            updateNextUpdateInfo();
+        }
+
+        async function refreshData() {
+            const refreshBtn = document.getElementById('refreshBtn');
+            const refreshIcon = document.getElementById('refreshIcon');
+
+            refreshBtn.disabled = true;
+            refreshIcon.classList.add('refresh-spin');
+
+            try {
+                document.getElementById('loadingIndicator').style.display = 'block';
+                document.getElementById('weatherDashboard').style.display = 'none';
+
+                await fetchWeatherData();
+                lastUpdateTime = getYakutskTime();
+
+                updateApiStatus();
+                updateLastUpdateTime();
+                updateNextUpdateInfo();
+
+                document.getElementById('loadingIndicator').style.display = 'none';
+                document.getElementById('weatherDashboard').style.display = 'grid';
+                document.getElementById('chartsSection').style.display = 'block';
+                document.getElementById('advancedSection').style.display = 'block';
+
+                renderWeatherCards();
+                createTemperatureChart();
+                createRadarChart();
+                renderScientificCalculations();
+
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+            } finally {
+                refreshBtn.disabled = false;
+                refreshIcon.classList.remove('refresh-spin');
+            }
+        }
+
+        // Модальные окна
         function openSettingsModal() {
             document.getElementById('settingsModal').style.display = 'flex';
         }
@@ -1585,6 +1782,7 @@
             appConfig.UPDATE_INTERVAL = parseInt(document.getElementById('updateInterval').value);
             appConfig.ALERT_THRESHOLDS.WIND_SPEED = parseInt(document.getElementById('maxWindSpeed').value);
             appConfig.ALERT_THRESHOLDS.TEMPERATURE = parseInt(document.getElementById('minTemperature').value);
+            appConfig.DATA_SOURCE_PRIORITY = document.getElementById('dataSourcePriority').value;
 
             saveConfig();
             setupAutoUpdate();
@@ -1595,7 +1793,7 @@
             alert('Настройки успешно сохранены!');
         }
 
-        // Функция для принудительного сброса конфигурации
+        // Отладочные функции
         function resetConfig() {
             localStorage.removeItem('weatherAppConfig');
             localStorage.removeItem('customLocations');
@@ -1607,6 +1805,7 @@
         }
 
 
+        // Инициализация приложения
         async function initializeApp() {
             try {
                 console.log('Инициализация приложения...');
@@ -1614,7 +1813,6 @@
                 loadConfig();
                 applyConfigToUI();
 
-                // Показываем индикатор загрузки
                 document.getElementById('loadingIndicator').style.display = 'block';
                 document.getElementById('weatherDashboard').style.display = 'none';
 
@@ -1625,7 +1823,6 @@
                 updateLastUpdateTime();
                 updateNextUpdateInfo();
 
-                // Скрываем индикатор и показываем данные
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('weatherDashboard').style.display = 'grid';
                 document.getElementById('chartsSection').style.display = 'block';
@@ -1636,14 +1833,12 @@
                 createRadarChart();
                 renderScientificCalculations();
 
-                // Добавляем кнопку отладки (можно удалить в продакшене)
 
             } catch (error) {
                 console.error('Error initializing app:', error);
                 document.getElementById('loadingIndicator').innerHTML =
                     'Ошибка загрузки данных. Используются резервные данные.';
 
-                // Все равно пытаемся показать данные
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('weatherDashboard').style.display = 'grid';
                 document.getElementById('chartsSection').style.display = 'block';
@@ -1657,6 +1852,7 @@
             }
         }
 
+        // Обработчики событий
         document.getElementById('loginBtn').addEventListener('click', function() {
             alert('Функция входа будет реализована в полной версии приложения');
         });
@@ -1683,6 +1879,7 @@
             if (e.target === this) closeMapModal();
         });
 
+        // Запуск приложения
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
 
@@ -1698,6 +1895,7 @@
             setInterval(updateNextUpdateInfo, 1000);
         });
 
+        // Глобальные функции
         window.deleteCustomLocation = deleteCustomLocation;
     </script>
 </body>
