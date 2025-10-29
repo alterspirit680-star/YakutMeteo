@@ -543,9 +543,8 @@
             margin-right: 5px;
         }
 
+        .source-yandex { background-color: #FF0000; }
         .source-openweather { background-color: #3498db; }
-        .source-weathergov { background-color: #2ecc71; }
-        .source-accuweather { background-color: #e74c3c; }
         .source-backup { background-color: #f39c12; }
 
         /* Стили для Яндекс Карт */
@@ -727,9 +726,8 @@
                     <div class="settings-label">Приоритет источников:</div>
                     <div class="settings-control">
                         <select id="dataSourcePriority">
-                            <option value="openweather,weathergov,accuweather">OpenWeather → Weather.gov → AccuWeather</option>
-                            <option value="weathergov,openweather,accuweather">Weather.gov → OpenWeather → AccuWeather</option>
-                            <option value="accuweather,openweather,weathergov">AccuWeather → OpenWeather → Weather.gov</option>
+                            <option value="yandex,openweather">Яндекс Погода → OpenWeather</option>
+                            <option value="openweather,yandex">OpenWeather → Яндекс Погода</option>
                         </select>
                     </div>
                 </div>
@@ -784,7 +782,7 @@
                 WIND_SPEED: 15,
                 TEMPERATURE: -45
             },
-            DATA_SOURCE_PRIORITY: "yandex,openweather,weathergov,accuweather",
+            DATA_SOURCE_PRIORITY: "yandex,openweather",
             LOCATIONS: [
                 { name: 'Мирный', lat: 62.5343, lon: 113.9610 },
                 { name: 'Удачный', lat: 66.4166, lon: 112.4000 },
@@ -792,61 +790,11 @@
             ]
         };
 
-        // API ключи (в реальном приложении хранить на сервере)
+        // API ключи
         const API_KEYS = {
-            OPENWEATHER: '7253447bdd5d5b3a73b932e71fcaa87b',
-            ACCUWEATHER: 'zpka_30b138fd31e640a09070c79087ba339a_122d930c'
-            YANDEX_WEATHER: '2eedcd80-4ca8-40bb-b229-b0a6e59a760e'
+            YANDEX_WEATHER: '2eedcd80-4ca8-40bb-b229-b0a6e59a760e',
+            OPENWEATHER: '7253447bdd5d5b3a73b932e71fcaa87b'
         };
-
-        // Функция для Яндекс Погоды
-        async function fetchFromYandexWeather(lat, lon) {
-            try {
-                // Яндекс Погода API требует ключ
-                const url = `https://api.weather.yandex.ru/v2/forecast?lat=${lat}&lon=${lon}&extra=true`;
-
-                const response = await fetch(url, {
-                    headers: {
-                        'X-Yandex-API-Key': API_KEYS.YANDEX_WEATHER
-                    }
-                });
-
-                if (!response.ok) throw new Error(`Yandex Weather: ${response.status}`);
-
-                const data = await response.json();
-
-                return {
-                    temp: Math.round(data.fact.temp),
-                    feels_like: Math.round(data.fact.feels_like),
-                    humidity: data.fact.humidity,
-                    pressure: Math.round(data.fact.pressure_mm),
-                    wind_speed: data.fact.wind_speed,
-                    weather_icon: getYandexWeatherIcon(data.fact.icon),
-                    weather_description: data.fact.condition,
-                    timestamp: new Date().toISOString(),
-                    forecast: generateYandexForecast(data.forecasts)
-                };
-            } catch (error) {
-                throw new Error('Yandex Weather unavailable');
-            }
-        }
-
-        function getYandexWeatherIcon(iconCode) {
-            const iconMap = {
-                'skc': '01d', 'ovc': '04d', 'bkn': '03d',
-                'bkn_n': '03n', 'ovc_n': '04n', 'skc_n': '01n',
-                'light-rain': '10d', 'rain': '09d', 'heavy-rain': '09d',
-                'snow': '13d', 'light-snow': '13d', 'snow-showers': '13d'
-            };
-            return iconMap[iconCode] || '02d';
-        }
-
-        function generateYandexForecast(forecasts) {
-            return forecasts.slice(0, 3).map(day => ({
-                time: formatDate(new Date(day.date)),
-                temp: Math.round((day.parts.day.temp_max + day.parts.day.temp_min) / 2)
-            }));
-        }
 
         // Резервные данные для Якутии
         const BACKUP_DATA = {
@@ -1065,22 +1013,12 @@
                         case 'yandex':
                             data = await fetchFromYandexWeather(lat, lon);
                             break;
-                        case 'gismeteo':
-                            data = await fetchFromGismeteo(lat, lon);
-                            break;
                         case 'openweather':
                             data = await fetchFromOpenWeather(lat, lon);
-                            break;
-                        case 'accuweather':
-                            data = await fetchFromAccuWeather(lat, lon);
-                            break;
-                        case 'yandex_parse':
-                            data = await fetchFromYandexParsing(lat, lon, locationName);
                             break;
                     }
 
                     if (data) {
-                        console.log(`Данные получены из ${source} для ${locationName}`);
                         return {
                             ...data,
                             location: locationName,
@@ -1094,7 +1032,8 @@
                 }
             }
 
-            // Резервные данные
+            // Если все источники не доступны, используем резервные данные
+            console.log(`Все источники недоступны для ${locationName}, используем резервные данные`);
             return {
                 ...getBackupData(locationName),
                 dataSource: 'backup',
@@ -1102,99 +1041,124 @@
             };
         }
 
-        async function fetchFromOpenWeather(lat, lon) {
-            const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEYS.OPENWEATHER}&units=metric&lang=ru`;
-
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`OpenWeather: ${response.status}`);
-
-            const data = await response.json();
-
-            return {
-                temp: Math.round(data.main.temp),
-                feels_like: Math.round(data.main.feels_like),
-                humidity: data.main.humidity,
-                pressure: Math.round(data.main.pressure * 0.750062),
-                wind_speed: data.wind.speed || 0,
-                weather_icon: data.weather[0].icon,
-                weather_description: data.weather[0].description,
-                timestamp: new Date().toISOString(),
-                forecast: generateForecast(data.main.temp)
-            };
-        }
-
-        async function fetchFromWeatherGov(lat, lon) {
-            // Weather.gov предоставляет данные только для США
-            // Для Якутии используем прокси или альтернативный подход
+        // Яндекс Погода API
+        async function fetchFromYandexWeather(lat, lon) {
             try {
-                // Пробуем получить данные через CORS прокси
-                const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-                const targetUrl = `https://api.weather.gov/points/${lat},${lon}`;
+                const url = `https://api.weather.yandex.ru/v2/forecast?lat=${lat}&lon=${lon}&limit=1&hours=false&extra=false`;
 
-                const response = await fetch(proxyUrl + targetUrl);
-                if (!response.ok) throw new Error('Weather.gov not available for this location');
+                console.log('Запрос к Яндекс Погоде:', url);
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'X-Yandex-API-Key': API_KEYS.YANDEX_WEATHER
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Yandex Weather API error: ${response.status} ${response.statusText}`);
+                }
 
                 const data = await response.json();
-                // Дополнительная обработка данных weather.gov...
+                console.log('Ответ от Яндекс Погоды:', data);
 
-                return null; // Временно возвращаем null
-            } catch (error) {
-                throw new Error('Weather.gov unavailable');
-            }
-        }
-
-        async function fetchFromAccuWeather(lat, lon) {
-            // AccuWeather требует location key
-            try {
-                // Сначала получаем location key
-                const locationUrl = `http://dataservice.accuweather.com/locations/v1/cities/geoposition/search?apikey=${API_KEYS.ACCUWEATHER}&q=${lat},${lon}`;
-                const locationResponse = await fetch(locationUrl);
-
-                if (!locationResponse.ok) throw new Error('AccuWeather location error');
-
-                const locationData = await locationResponse.json();
-                const locationKey = locationData.Key;
-
-                // Затем получаем погоду
-                const weatherUrl = `http://dataservice.accuweather.com/currentconditions/v1/${locationKey}?apikey=${API_KEYS.ACCUWEATHER}&details=true`;
-                const weatherResponse = await fetch(weatherUrl);
-
-                if (!weatherResponse.ok) throw new Error('AccuWeather data error');
-
-                const weatherData = await weatherResponse.json();
-                const current = weatherData[0];
+                const fact = data.fact;
 
                 return {
-                    temp: Math.round(current.Temperature.Metric.Value),
-                    feels_like: Math.round(current.RealFeelTemperature.Metric.Value),
-                    humidity: current.RelativeHumidity,
-                    pressure: Math.round(current.Pressure.Metric.Value * 0.750062),
-                    wind_speed: current.Wind.Speed.Metric.Value,
-                    weather_icon: getAccuWeatherIcon(current.WeatherIcon),
-                    weather_description: current.WeatherText,
+                    temp: fact.temp,
+                    feels_like: fact.feels_like,
+                    humidity: fact.humidity,
+                    pressure: fact.pressure_mm,
+                    wind_speed: fact.wind_speed,
+                    weather_icon: getYandexWeatherIcon(fact.icon),
+                    weather_description: getYandexWeatherDescription(fact.condition),
                     timestamp: new Date().toISOString(),
-                    forecast: generateForecast(current.Temperature.Metric.Value)
+                    forecast: generateForecastFromYandex(data.forecasts)
                 };
             } catch (error) {
-                throw new Error('AccuWeather unavailable');
+                console.error('Ошибка Яндекс Погоды:', error);
+                throw error;
             }
         }
 
-        function getAccuWeatherIcon(iconCode) {
-            // Преобразование кодов AccuWeather в стандартные
+        function getYandexWeatherIcon(iconCode) {
             const iconMap = {
-                1: '01d', 2: '02d', 3: '03d', 4: '04d',
-                5: '09d', 6: '09d', 7: '09d', 8: '10d',
-                11: '11d', 12: '10d', 13: '13d', 14: '13d',
-                15: '13d', 16: '13d', 17: '11d', 18: '10d',
-                19: '50d', 20: '50d', 21: '50d', 22: '50d',
-                23: '13d', 24: '13d', 25: '13d', 26: '13d',
-                29: '13d', 30: '01d', 31: '01n', 32: '02d',
-                33: '02n', 34: '03d', 35: '03n', 36: '04d',
-                37: '04n', 38: '04d', 39: '09d', 40: '09d',
-                41: '13d', 42: '13d', 43: '13d', 44: '13d'
+                'skc_d': '01d', 'skc_n': '01n',
+                'ovc': '04d', 'ovc_-ra': '10d', 'ovc_ra': '09d',
+                'bkn_d': '03d', 'bkn_n': '03n',
+                'bkn_-ra_d': '10d', 'bkn_-ra_n': '10n',
+                'bkn_ra_d': '09d', 'bkn_ra_n': '09n',
+                'bkn_sn_d': '13d', 'bkn_sn_n': '13n',
+                'ovc_sn': '13d', 'ovc_+sn': '13d'
             };
             return iconMap[iconCode] || '02d';
+        }
+
+        function getYandexWeatherDescription(condition) {
+            const descriptionMap = {
+                'clear': 'ясно',
+                'partly-cloudy': 'малооблачно',
+                'cloudy': 'облачно с прояснениями',
+                'overcast': 'пасмурно',
+                'light-rain': 'небольшой дождь',
+                'rain': 'дождь',
+                'heavy-rain': 'сильный дождь',
+                'showers': 'ливень',
+                'wet-snow': 'дождь со снегом',
+                'light-snow': 'небольшой снег',
+                'snow': 'снег',
+                'snow-showers': 'снегопад',
+                'hail': 'град',
+                'thunderstorm': 'гроза',
+                'thunderstorm-with-rain': 'дождь с грозой',
+                'thunderstorm-with-hail': 'гроза с градом'
+            };
+            return descriptionMap[condition] || condition;
+        }
+
+        function generateForecastFromYandex(forecasts) {
+            if (!forecasts || forecasts.length < 2) return [];
+
+            return [
+                {
+                    time: 'Завтра',
+                    temp: Math.round((forecasts[1].parts.day.temp_avg || forecasts[1].parts.day.temp_max))
+                },
+                {
+                    time: 'Послезавтра',
+                    temp: Math.round((forecasts[2].parts.day.temp_avg || forecasts[2].parts.day.temp_max))
+                },
+                {
+                    time: 'Через 3 дня',
+                    temp: Math.round((forecasts[3].parts.day.temp_avg || forecasts[3].parts.day.temp_max))
+                }
+            ];
+        }
+
+        // OpenWeatherMap API
+        async function fetchFromOpenWeather(lat, lon) {
+            try {
+                const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEYS.OPENWEATHER}&units=metric&lang=ru`;
+
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`OpenWeather: ${response.status}`);
+
+                const data = await response.json();
+
+                return {
+                    temp: Math.round(data.main.temp),
+                    feels_like: Math.round(data.main.feels_like),
+                    humidity: data.main.humidity,
+                    pressure: Math.round(data.main.pressure * 0.750062),
+                    wind_speed: data.wind.speed || 0,
+                    weather_icon: data.weather[0].icon,
+                    weather_description: data.weather[0].description,
+                    timestamp: new Date().toISOString(),
+                    forecast: generateForecast(data.main.temp)
+                };
+            } catch (error) {
+                throw new Error('OpenWeather unavailable');
+            }
         }
 
         function generateForecast(currentTemp) {
@@ -1299,9 +1263,8 @@
 
         function getDataSourceColor(source) {
             const colorMap = {
+                'yandex': 'source-yandex',
                 'openweather': 'source-openweather',
-                'weathergov': 'source-weathergov',
-                'accuweather': 'source-accuweather',
                 'backup': 'source-backup'
             };
             return colorMap[source] || 'source-backup';
@@ -1309,9 +1272,8 @@
 
         function getDataSourceName(source) {
             const nameMap = {
+                'yandex': 'Яндекс Погода',
                 'openweather': 'OpenWeather',
-                'weathergov': 'Weather.gov',
-                'accuweather': 'AccuWeather',
                 'backup': 'Резервные данные'
             };
             return nameMap[source] || 'Неизвестный источник';
@@ -1804,6 +1766,18 @@
             location.reload();
         }
 
+        function addDebugButton() {
+            const debugBtn = document.createElement('button');
+            debugBtn.textContent = 'Сбросить настройки';
+            debugBtn.className = 'btn btn-outline';
+            debugBtn.style.marginLeft = '10px';
+            debugBtn.onclick = function() {
+                if (confirm('Сбросить все настройки к значениям по умолчанию?')) {
+                    resetConfig();
+                }
+            };
+            document.querySelector('.control-buttons').appendChild(debugBtn);
+        }
 
         // Инициализация приложения
         async function initializeApp() {
@@ -1833,6 +1807,7 @@
                 createRadarChart();
                 renderScientificCalculations();
 
+                addDebugButton();
 
             } catch (error) {
                 console.error('Error initializing app:', error);
