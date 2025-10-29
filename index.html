@@ -219,6 +219,42 @@
             border-bottom: 1px solid #eee;
         }
 
+        .forecast-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        .forecast-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--secondary);
+        }
+
+        .forecast-items {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+
+        .forecast-item {
+            text-align: center;
+            padding: 8px;
+            background: rgba(41, 116, 166, 0.05);
+            border-radius: 6px;
+        }
+
+        .forecast-time {
+            font-size: 0.8rem;
+            color: var(--dark);
+            margin-bottom: 5px;
+        }
+
+        .forecast-temp {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
         .alert {
             padding: 12px;
             border-radius: 6px;
@@ -532,6 +568,10 @@
             .map-modal {
                 max-width: 95%;
             }
+
+            .forecast-items {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -711,7 +751,12 @@
                 pressure: 765,
                 wind_speed: 15,
                 weather_icon: '13d',
-                weather_description: 'снег'
+                weather_description: 'снег',
+                forecast: [
+                    { time: 'Через 1 час', temp: -41 },
+                    { time: 'Через 6 часов', temp: -39 },
+                    { time: 'Через 8 часов', temp: -38 }
+                ]
             },
             'Удачный': {
                 temp: -38,
@@ -720,7 +765,12 @@
                 pressure: 768,
                 wind_speed: 12,
                 weather_icon: '04d',
-                weather_description: 'облачно'
+                weather_description: 'облачно',
+                forecast: [
+                    { time: 'Через 1 час', temp: -37 },
+                    { time: 'Через 6 часов', temp: -35 },
+                    { time: 'Через 8 часов', temp: -34 }
+                ]
             },
             'Айхал': {
                 temp: -35,
@@ -729,7 +779,12 @@
                 pressure: 770,
                 wind_speed: 8,
                 weather_icon: '01d',
-                weather_description: 'ясно'
+                weather_description: 'ясно',
+                forecast: [
+                    { time: 'Через 1 час', temp: -34 },
+                    { time: 'Через 6 часов', temp: -32 },
+                    { time: 'Через 8 часов', temp: -31 }
+                ]
             }
         };
 
@@ -753,7 +808,6 @@
                 try {
                     appConfig = { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
                 } catch (e) {
-                    console.error('Error loading config:', e);
                     appConfig = { ...DEFAULT_CONFIG };
                 }
             }
@@ -762,7 +816,6 @@
                 try {
                     customLocations = JSON.parse(savedLocations);
                 } catch (e) {
-                    console.error('Error loading locations:', e);
                     customLocations = [];
                 }
             }
@@ -889,31 +942,72 @@
 
         async function fetchWeatherForLocation(lat, lon, locationName) {
             try {
-                const response = await fetch(
+                const currentResponse = await fetch(
                     `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`
                 );
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error: ${response.status}`);
+                const forecastResponse = await fetch(
+                    `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`
+                );
+
+                if (!currentResponse.ok || !forecastResponse.ok) {
+                    throw new Error('API request failed');
                 }
 
-                const data = await response.json();
+                const currentData = await currentResponse.json();
+                const forecastData = await forecastResponse.json();
+
+                const forecast = [
+                    {
+                        time: 'Через 1 час',
+                        temp: Math.round(getForecastTemp(forecastData, 1))
+                    },
+                    {
+                        time: 'Через 6 часов',
+                        temp: Math.round(getForecastTemp(forecastData, 6))
+                    },
+                    {
+                        time: 'Через 8 часов',
+                        temp: Math.round(getForecastTemp(forecastData, 8))
+                    }
+                ];
 
                 return {
                     location: locationName,
-                    temp: Math.round(data.main.temp),
-                    feels_like: Math.round(data.main.feels_like),
-                    humidity: data.main.humidity,
-                    pressure: Math.round(data.main.pressure * 0.750062),
-                    wind_speed: data.wind.speed,
-                    weather_icon: data.weather[0].icon,
-                    weather_description: data.weather[0].description,
-                    timestamp: new Date().toISOString()
+                    temp: Math.round(currentData.main.temp),
+                    feels_like: Math.round(currentData.main.feels_like),
+                    humidity: currentData.main.humidity,
+                    pressure: Math.round(currentData.main.pressure * 0.750062),
+                    wind_speed: currentData.wind.speed,
+                    weather_icon: currentData.weather[0].icon,
+                    weather_description: currentData.weather[0].description,
+                    timestamp: new Date().toISOString(),
+                    forecast: forecast
                 };
             } catch (error) {
-                console.error(`Error fetching weather for ${locationName}:`, error);
                 throw error;
             }
+        }
+
+        function getForecastTemp(forecastData, hoursAhead) {
+            const now = new Date();
+            const targetTime = new Date(now.getTime() + hoursAhead * 60 * 60 * 1000);
+
+            const forecasts = forecastData.list;
+            let closestForecast = forecasts[0];
+            let minTimeDiff = Math.abs(new Date(forecasts[0].dt * 1000) - targetTime);
+
+            for (let i = 1; i < forecasts.length; i++) {
+                const forecastTime = new Date(forecasts[i].dt * 1000);
+                const timeDiff = Math.abs(forecastTime - targetTime);
+
+                if (timeDiff < minTimeDiff) {
+                    minTimeDiff = timeDiff;
+                    closestForecast = forecasts[i];
+                }
+            }
+
+            return closestForecast.main.temp;
         }
 
         function getBackupData(locationName) {
@@ -927,7 +1021,8 @@
                 wind_speed: data.wind_speed,
                 weather_icon: data.weather_icon,
                 weather_description: data.weather_description,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                forecast: data.forecast
             };
         }
 
@@ -1023,6 +1118,7 @@
                 const humidity = locationData.humidity;
                 const pressure = locationData.pressure;
                 const weatherIcon = getWeatherIcon(locationData.weather_icon);
+                const forecast = locationData.forecast || [];
 
                 const windChill = calculateWindChill(temp, windSpeed);
                 const frostbiteTime = calculateFrostbiteTime(windChill);
@@ -1050,6 +1146,20 @@
                 const deleteButton = isCustom ?
                     `<button class="delete-location" onclick="deleteCustomLocation('${location.name}')">🗑️</button>` : '';
 
+                const forecastHTML = forecast.length > 0 ? `
+                    <div class="forecast-section">
+                        <div class="forecast-title">Прогноз температуры:</div>
+                        <div class="forecast-items">
+                            ${forecast.map(item => `
+                                <div class="forecast-item">
+                                    <div class="forecast-time">${item.time}</div>
+                                    <div class="forecast-temp">${item.temp}°C</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : '';
+
                 dashboard.innerHTML += `
                     <div class="weather-card">
                         <h2>${location.name} ${deleteButton}<span class="time">${formatTime(getYakutskTime())}</span></h2>
@@ -1075,6 +1185,7 @@
                                 <span>${pressure} мм рт.ст.</span>
                             </div>
                         </div>
+                        ${forecastHTML}
                         <div class="alert ${alertClass}">
                             ${alertText}
                         </div>
