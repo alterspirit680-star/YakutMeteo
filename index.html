@@ -805,11 +805,24 @@
             const savedConfig = localStorage.getItem('weatherAppConfig');
             const savedLocations = localStorage.getItem('customLocations');
 
+            // ВАЖНО: Создаем глубокую копию DEFAULT_CONFIG
+            appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+
             if (savedConfig) {
                 try {
-                    appConfig = { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
+                    const parsedConfig = JSON.parse(savedConfig);
+                    // Объединяем настройки, сохраняя структуру DEFAULT_CONFIG
+                    appConfig.UPDATE_INTERVAL = parsedConfig.UPDATE_INTERVAL || DEFAULT_CONFIG.UPDATE_INTERVAL;
+                    appConfig.ALERT_THRESHOLDS = {
+                        ...DEFAULT_CONFIG.ALERT_THRESHOLDS,
+                        ...parsedConfig.ALERT_THRESHOLDS
+                    };
+                    // Сохраняем оригинальные локации из DEFAULT_CONFIG
+                    appConfig.LOCATIONS = [...DEFAULT_CONFIG.LOCATIONS];
                 } catch (e) {
-                    appConfig = { ...DEFAULT_CONFIG };
+                    console.error('Ошибка загрузки конфигурации:', e);
+                    // В случае ошибки используем DEFAULT_CONFIG
+                    appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
                 }
             }
 
@@ -817,12 +830,17 @@
                 try {
                     customLocations = JSON.parse(savedLocations);
                 } catch (e) {
+                    console.error('Ошибка загрузки пользовательских локаций:', e);
                     customLocations = [];
                 }
             }
 
+            console.log('Загруженная конфигурация:', appConfig);
+            console.log('Пользовательские локации:', customLocations);
+
             return appConfig;
         }
+
 
         function saveConfig() {
             localStorage.setItem('weatherAppConfig', JSON.stringify(appConfig));
@@ -923,17 +941,20 @@
 
         async function fetchWeatherData() {
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
-            const weatherPromises = allLocations.map(location =>
-                fetchWeatherForLocation(location.lat, location.lon, location.name)
-                    .catch(error => {
-                        console.error(`Ошибка для ${location.name}:`, error);
-                        // Возвращаем backup данные в случае ошибки
-                        return {
-                            ...getBackupData(location.name),
-                            error: error.message
-                        };
-                    })
-            );
+
+            console.log('Все локации для запроса:', allLocations);
+
+            // Проверяем структуру каждой локации
+            allLocations.forEach((location, index) => {
+                console.log(`Локация ${index}:`, location);
+                if (!location.lat || !location.lon) {
+                    console.error(`Локация "${location.name}" имеет некорректные координаты:`, location);
+                }
+            });
+
+            const weatherPromises = allLocations.map(location => {
+                return fetchWeatherForLocation(location.lat, location.lon, location.name);
+            });
 
             const results = await Promise.all(weatherPromises);
 
@@ -945,8 +966,11 @@
                 weatherData[locationName] = result;
             });
 
-            // Проверяем, есть ли хотя бы один успешный запрос к API
-            apiWorking = results.some(result => !result.error);
+            // Проверяем, есть ли хотя бы один успешный запрос к API (не из backup)
+            apiWorking = results.some(result => !result.fromBackup);
+
+            console.log('Результаты запросов:', weatherData);
+            console.log('API работает:', apiWorking);
 
             return weatherData;
         }
@@ -954,19 +978,21 @@
 
         async function fetchWeatherForLocation(lat, lon, locationName) {
             try {
-                // Проверяем корректность координат
-                if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
-                    throw new Error(`Некорректные координаты для ${locationName}: ${lat}, ${lon}`);
+                console.log(`Запрос данных для ${locationName}: lat=${lat}, lon=${lon}`);
+
+                // Проверяем корректность координат более тщательно
+                if (lat === undefined || lon === undefined || lat === null || lon === null ||
+                    isNaN(parseFloat(lat)) || isNaN(parseFloat(lon))) {
+                    throw new Error(`Некорректные координаты для "${locationName}": lat=${lat}, lon=${lon}`);
                 }
 
                 const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`;
 
-                console.log(`Запрос погоды для ${locationName}: ${url}`);
+                console.log(`URL запроса для ${locationName}:`, url);
 
                 const response = await fetch(url);
 
                 if (!response.ok) {
-                    // Более детальная обработка ошибок
                     if (response.status === 401) {
                         throw new Error('Неверный API ключ');
                     } else if (response.status === 404) {
@@ -980,7 +1006,6 @@
 
                 const data = await response.json();
 
-                // Проверяем, что получили корректные данные
                 if (!data.main || !data.weather) {
                     throw new Error('Некорректный ответ от API');
                 }
@@ -998,8 +1023,13 @@
                     forecast: generateForecast(data.main.temp)
                 };
             } catch (error) {
-                console.error(`Ошибка получения данных для ${locationName}:`, error);
-                throw error;
+                console.error(`Ошибка получения данных для "${locationName}":`, error);
+                // Возвращаем backup данные с информацией об ошибке
+                return {
+                    ...getBackupData(locationName),
+                    error: error.message,
+                    fromBackup: true
+                };
             }
         }
 
@@ -1372,7 +1402,7 @@
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
 
             const failedLocations = allLocations.filter(location =>
-                weatherData[location.name] && weatherData[location.name].error
+                weatherData[location.name] && weatherData[location.name].fromBackup
             );
 
             if (apiWorking) {
@@ -1396,6 +1426,15 @@
                     </div>
                 `;
             }
+        }
+
+        function resetConfig() {
+            localStorage.removeItem('weatherAppConfig');
+            localStorage.removeItem('customLocations');
+            appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+            customLocations = [];
+            saveConfig();
+            console.log('Конфигурация сброшена к значениям по умолчанию');
         }
 
         async function refreshData() {
@@ -1528,6 +1567,8 @@
 
         async function initializeApp() {
             try {
+                console.log('Инициализация приложения...');
+
                 loadConfig();
                 applyConfigToUI();
 
@@ -1570,6 +1611,21 @@
                 createRadarChart();
                 renderScientificCalculations();
             }
+            addDebugButton();
+        }
+
+        function addDebugButton() {
+            const debugBtn = document.createElement('button');
+            debugBtn.textContent = 'Сбросить настройки';
+            debugBtn.className = 'btn btn-outline';
+            debugBtn.style.marginLeft = '10px';
+            debugBtn.onclick = function() {
+                if (confirm('Сбросить все настройки к значениям по умолчанию?')) {
+                    resetConfig();
+                    location.reload();
+                }
+            };
+            document.querySelector('.control-buttons').appendChild(debugBtn);
         }
 
         document.getElementById('loginBtn').addEventListener('click', function() {
