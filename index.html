@@ -1606,19 +1606,6 @@
             location.reload();
         }
 
-        // Добавляем кнопку для сброса конфигурации (можно убрать после отладки)
-        function addDebugButton() {
-            const debugBtn = document.createElement('button');
-            debugBtn.textContent = 'Сбросить настройки';
-            debugBtn.className = 'btn btn-outline';
-            debugBtn.style.marginLeft = '10px';
-            debugBtn.onclick = function() {
-                if (confirm('Сбросить все настройки к значениям по умолчанию?')) {
-                    resetConfig();
-                }
-            };
-            document.querySelector('.control-buttons').appendChild(debugBtn);
-        }
 
         async function initializeApp() {
             try {
@@ -1650,7 +1637,6 @@
                 renderScientificCalculations();
 
                 // Добавляем кнопку отладки (можно удалить в продакшене)
-                addDebugButton();
 
             } catch (error) {
                 console.error('Error initializing app:', error);
