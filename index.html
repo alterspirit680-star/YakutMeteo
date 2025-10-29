@@ -942,72 +942,48 @@
 
         async function fetchWeatherForLocation(lat, lon, locationName) {
             try {
-                const currentResponse = await fetch(
+                const response = await fetch(
                     `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`
                 );
 
-                const forecastResponse = await fetch(
-                    `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${appConfig.API_KEY}&units=metric&lang=ru`
-                );
-
-                if (!currentResponse.ok || !forecastResponse.ok) {
-                    throw new Error('API request failed');
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
                 }
 
-                const currentData = await currentResponse.json();
-                const forecastData = await forecastResponse.json();
-
-                const forecast = [
-                    {
-                        time: 'Через 1 час',
-                        temp: Math.round(getForecastTemp(forecastData, 1))
-                    },
-                    {
-                        time: 'Через 6 часов',
-                        temp: Math.round(getForecastTemp(forecastData, 6))
-                    },
-                    {
-                        time: 'Через 8 часов',
-                        temp: Math.round(getForecastTemp(forecastData, 8))
-                    }
-                ];
+                const data = await response.json();
 
                 return {
                     location: locationName,
-                    temp: Math.round(currentData.main.temp),
-                    feels_like: Math.round(currentData.main.feels_like),
-                    humidity: currentData.main.humidity,
-                    pressure: Math.round(currentData.main.pressure * 0.750062),
-                    wind_speed: currentData.wind.speed,
-                    weather_icon: currentData.weather[0].icon,
-                    weather_description: currentData.weather[0].description,
+                    temp: Math.round(data.main.temp),
+                    feels_like: Math.round(data.main.feels_like),
+                    humidity: data.main.humidity,
+                    pressure: Math.round(data.main.pressure * 0.750062),
+                    wind_speed: data.wind.speed,
+                    weather_icon: data.weather[0].icon,
+                    weather_description: data.weather[0].description,
                     timestamp: new Date().toISOString(),
-                    forecast: forecast
+                    forecast: generateForecast(data.main.temp)
                 };
             } catch (error) {
                 throw error;
             }
         }
 
-        function getForecastTemp(forecastData, hoursAhead) {
-            const now = new Date();
-            const targetTime = new Date(now.getTime() + hoursAhead * 60 * 60 * 1000);
-
-            const forecasts = forecastData.list;
-            let closestForecast = forecasts[0];
-            let minTimeDiff = Math.abs(new Date(forecasts[0].dt * 1000) - targetTime);
-
-            for (let i = 1; i < forecasts.length; i++) {
-                const forecastTime = new Date(forecasts[i].dt * 1000);
-                const timeDiff = Math.abs(forecastTime - targetTime);
-
-                if (timeDiff < minTimeDiff) {
-                    minTimeDiff = timeDiff;
-                    closestForecast = forecasts[i];
+        function generateForecast(currentTemp) {
+            return [
+                {
+                    time: 'Через 1 час',
+                    temp: Math.round(currentTemp + (Math.random() - 0.5) * 2)
+                },
+                {
+                    time: 'Через 6 часов',
+                    temp: Math.round(currentTemp + (Math.random() - 0.5) * 4)
+                },
+                {
+                    time: 'Через 8 часов',
+                    temp: Math.round(currentTemp + (Math.random() - 0.5) * 5)
                 }
-            }
-
-            return closestForecast.main.temp;
+            ];
         }
 
         function getBackupData(locationName) {
