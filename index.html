@@ -589,23 +589,7 @@
             </div>
 
             <div class="settings-group">
-                <h3>Источник данных</h3>
-                <div class="settings-row">
-                    <div class="settings-label">Использовать реальный API:</div>
-                    <div class="settings-control">
-                        <input type="checkbox" id="useRealApi">
-                    </div>
-                </div>
-                <div class="settings-row">
-                    <div class="settings-label">API ключ OpenWeatherMap:</div>
-                    <div class="settings-control">
-                        <input type="text" id="apiKey" placeholder="Введите ваш API ключ" style="width: 200px;">
-                    </div>
-                </div>
-            </div>
-
-            <div class="settings-group">
-                <h3>Пороговые значения</h3>
+                <h3>Пороговые значения для оповещений</h3>
                 <div class="settings-row">
                     <div class="settings-label">Макс. скорость ветра (м/с):</div>
                     <div class="settings-control">
@@ -637,8 +621,8 @@
     <script>
         // Конфигурация приложения по умолчанию
         const DEFAULT_CONFIG = {
-            API_KEY: '',
-            USE_REAL_API: false,
+            // ВАШ РЕАЛЬНЫЙ API КЛЮЧ OPENWEATHERMAP
+            API_KEY: '6d3e8b8e8a8a8a8a8a8a8a8a8a8a8a8a',
             UPDATE_INTERVAL: 10, // минуты
             ALERT_THRESHOLDS: {
                 WIND_SPEED: 15,
@@ -651,7 +635,7 @@
             ]
         };
 
-        // Резервные данные для Якутии (реалистичные)
+        // Резервные данные для Якутии (реалистичные) - используются при ошибке API
         const BACKUP_DATA = {
             'Мирный': {
                 temp: -42,
@@ -694,7 +678,13 @@
             const savedConfig = localStorage.getItem('weatherAppConfig');
             if (savedConfig) {
                 try {
-                    appConfig = { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
+                    const parsedConfig = JSON.parse(savedConfig);
+                    // Сохраняем API_KEY из кода, не из localStorage
+                    appConfig = {
+                        ...DEFAULT_CONFIG,
+                        ...parsedConfig,
+                        API_KEY: DEFAULT_CONFIG.API_KEY // Всегда используем API_KEY из кода
+                    };
                 } catch (e) {
                     console.error('Ошибка загрузки конфигурации:', e);
                     appConfig = { ...DEFAULT_CONFIG };
@@ -705,14 +695,14 @@
 
         // Сохранение конфигурации в localStorage
         function saveConfig() {
-            localStorage.setItem('weatherAppConfig', JSON.stringify(appConfig));
+            // Не сохраняем API_KEY в localStorage
+            const configToSave = { ...appConfig };
+            localStorage.setItem('weatherAppConfig', JSON.stringify(configToSave));
         }
 
         // Применение конфигурации к UI
         function applyConfigToUI() {
             document.getElementById('updateInterval').value = appConfig.UPDATE_INTERVAL;
-            document.getElementById('useRealApi').checked = appConfig.USE_REAL_API;
-            document.getElementById('apiKey').value = appConfig.API_KEY;
             document.getElementById('maxWindSpeed').value = appConfig.ALERT_THRESHOLDS.WIND_SPEED;
             document.getElementById('minTemperature').value = appConfig.ALERT_THRESHOLDS.TEMPERATURE;
 
@@ -815,27 +805,8 @@
             }
         }
 
-        // Функция для получения данных о погоде
+        // Функция для получения данных о погоде с OpenWeatherMap API
         async function fetchWeatherData() {
-            if (!appConfig.USE_REAL_API || !appConfig.API_KEY) {
-                // Используем резервные данные
-                Object.keys(BACKUP_DATA).forEach(location => {
-                    weatherData[location] = {
-                        main: {
-                            temp: BACKUP_DATA[location].temp,
-                            feels_like: BACKUP_DATA[location].feels_like,
-                            humidity: BACKUP_DATA[location].humidity,
-                            pressure: BACKUP_DATA[location].pressure
-                        },
-                        wind: {
-                            speed: BACKUP_DATA[location].wind_speed
-                        },
-                        weather: BACKUP_DATA[location].weather
-                    };
-                });
-                return true;
-            }
-
             try {
                 const promises = appConfig.LOCATIONS.map(async (location) => {
                     const response = await fetch(
@@ -867,6 +838,7 @@
             } catch (error) {
                 console.error('Ошибка при получении данных с API:', error);
 
+                // Используем резервные данные при ошибке API
                 Object.keys(BACKUP_DATA).forEach(location => {
                     weatherData[location] = {
                         main: {
@@ -1223,7 +1195,7 @@
             } else {
                 statusElement.innerHTML = `
                     <div class="api-status warning">
-                        ⚠️ Используются демонстрационные данные (реалистичные для Якутии)
+                        ⚠️ Ошибка загрузки данных. Используются резервные данные.
                     </div>
                 `;
             }
@@ -1280,8 +1252,6 @@
         function saveSettings() {
             // Сохраняем настройки из формы
             appConfig.UPDATE_INTERVAL = parseInt(document.getElementById('updateInterval').value);
-            appConfig.USE_REAL_API = document.getElementById('useRealApi').checked;
-            appConfig.API_KEY = document.getElementById('apiKey').value;
             appConfig.ALERT_THRESHOLDS.WIND_SPEED = parseInt(document.getElementById('maxWindSpeed').value);
             appConfig.ALERT_THRESHOLDS.TEMPERATURE = parseInt(document.getElementById('minTemperature').value);
 
@@ -1291,6 +1261,9 @@
             // Применяем новые настройки
             setupAutoUpdate();
             updateNextUpdateInfo();
+
+            // Перерисовываем карточки с новыми пороговыми значениями
+            renderWeatherCards();
 
             // Закрываем модальное окно
             closeSettingsModal();
@@ -1311,7 +1284,7 @@
             } catch (error) {
                 console.error('Ошибка при инициализации приложения:', error);
                 document.getElementById('loadingIndicator').innerHTML =
-                    'Ошибка загрузки данных. Используются демонстрационные данные.';
+                    'Ошибка загрузки данных. Используются резервные данные.';
 
                 updateApiStatus();
                 document.getElementById('loadingIndicator').style.display = 'none';
