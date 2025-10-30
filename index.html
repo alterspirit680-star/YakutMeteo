@@ -694,12 +694,12 @@
                     <div class="settings-label">Приоритет источников:</div>
                     <div class="settings-control">
                         <select id="dataSourcePriority">
-                            <option value="yandex,openweather,meteosource">Яндекс → OpenWeather → MeteoSource</option>
-                            <option value="yandex,openweather,meteosource">Яндекс → OpenWeather → MeteoSource</option>
-                            <option value="openweather,yandex,meteosource">OpenWeather → Яндекс → MeteoSource</option>
-                            <option value="openweather,meteosource,yandex">OpenWeather → MeteoSource → Яндекс</option>
-                            <option value="meteosource,yandex,openweather">MeteoSource → Яндекс → OpenWeather</option>
-                            <option value="meteosource,openweather,yandex">MeteoSource → OpenWeather → Яндекс</option>
+                            <option value="yandex,openweather,meteosource">Яндекс Погода → OpenWeather → MeteoSource</option>
+                            <option value="yandex,meteosource,openweather">Яндекс Погода → MeteoSource → OpenWeather</option>
+                            <option value="openweather,yandex,meteosource">OpenWeather → Яндекс Погода → MeteoSource</option>
+                            <option value="openweather,meteosource,yandex">OpenWeather → MeteoSource → Яндекс Погода</option>
+                            <option value="meteosource,yandex,openweather">MeteoSource → Яндекс Погода → OpenWeather</option>
+                            <option value="meteosource,openweather,yandex">MeteoSource → OpenWeather → Яндекс Погода</option>
                         </select>
                     </div>
                 </div>
@@ -972,7 +972,6 @@
             return weatherData;
         }
 
-        // Обновляем существующую функцию
         async function fetchWeatherFromMultipleSources(lat, lon, locationName, dataSources) {
             for (const source of dataSources) {
                 try {
@@ -987,13 +986,6 @@
                         case 'meteosource':
                             data = await fetchFromMeteoSource(lat, lon);
                             break;
-                        case 'weathernews':
-                            // Находим weathernews_id для локации
-                            const allLocations = [...appConfig.LOCATIONS, ...customLocations];
-                            const location = allLocations.find(loc => loc.name === locationName);
-                            const weathernewsId = location ? location.weathernews_id : null;
-                            data = await fetchFromWeatherNews(locationName, weathernewsId);
-                            break;
                     }
 
                     if (data) {
@@ -1005,7 +997,6 @@
                         };
                     }
                 } catch (error) {
-                    console.log(`Источник ${source} недоступен для ${locationName}:`, error.message);
                     continue;
                 }
             }
@@ -1733,3 +1724,4 @@
     </script>
 </body>
 </html>
+
