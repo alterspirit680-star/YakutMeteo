@@ -49,6 +49,11 @@
             gap: 15px;
         }
 
+        .logo-img {
+            height: 50px;
+            width: auto;
+        }
+
         .logo h1 {
             font-size: 1.8rem;
             font-weight: 600;
@@ -213,36 +218,40 @@
             color: var(--secondary);
         }
 
-        .hourly-forecast {
-            display: flex;
-            overflow-x: auto;
+        .forecast-items {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 10px;
-            padding: 10px 0;
         }
 
-        .hourly-item {
+        .forecast-item {
             text-align: center;
             padding: 8px;
             background: rgba(41, 116, 166, 0.05);
             border-radius: 6px;
-            min-width: 80px;
         }
 
-        .hourly-time {
+        .forecast-time {
             font-size: 0.8rem;
             color: var(--dark);
             margin-bottom: 5px;
         }
 
-        .hourly-temp {
+        .forecast-temp {
             font-weight: 600;
             font-size: 1.1rem;
+            margin-bottom: 3px;
+        }
+
+        .forecast-wind {
+            font-size: 0.8rem;
+            color: var(--dark);
         }
 
         .alert {
             padding: 12px;
             border-radius: 6px;
-            margin-top: 15px;
+            margin-top: 10px;
             font-weight: 500;
         }
 
@@ -262,6 +271,12 @@
             background-color: rgba(39, 174, 96, 0.1);
             color: var(--success);
             border-left: 4px solid var(--success);
+        }
+
+        .alert-helicopter {
+            background-color: rgba(1, 113, 179, 0.1);
+            color: #226693;
+            border-left: 4px solid #226693;
         }
 
         .recommendation {
@@ -297,6 +312,28 @@
         .chart-container {
             height: 300px;
             margin-bottom: 20px;
+        }
+
+        .advanced-section {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+            padding: 20px;
+        }
+
+        .advanced-section h2 {
+            color: var(--primary);
+            margin-bottom: 20px;
+        }
+
+        .radar-chart {
+            height: 300px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            margin-top: 20px;
         }
 
         footer {
@@ -493,7 +530,6 @@
         .source-meteosource { background-color: #9b59b6; }
         .source-backup { background-color: #f39c12; }
 
-        /* Стили для Яндекс Карт */
         .ymaps-2-1-79-map {
             border-radius: 8px;
         }
@@ -542,6 +578,10 @@
             .map-modal {
                 max-width: 95%;
             }
+
+            .forecast-items {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -549,7 +589,7 @@
     <header>
         <div class="header-content">
             <div class="logo">
-                <h1>Метеостанция Якутии</h1>
+                <img src="Logo.png" alt="Метеостанция Якутии" class="logo-img">
             </div>
             <div class="header-info">
                 <div class="current-time" id="currentTime">Загрузка времени...</div>
@@ -596,6 +636,13 @@
             <h2>Сравнение метеоусловий</h2>
             <div class="chart-container">
                 <canvas id="temperatureChart"></canvas>
+            </div>
+        </section>
+
+        <section class="advanced-section" id="advancedSection" style="display: none;">
+            <h2>Радар-диаграмма метеоусловий</h2>
+            <div class="radar-chart">
+                <canvas id="radarChart"></canvas>
             </div>
         </section>
     </main>
@@ -700,7 +747,6 @@
     </footer>
 
     <script>
-        // Конфигурация приложения
         const DEFAULT_CONFIG = {
             UPDATE_INTERVAL: 10,
             ALERT_THRESHOLDS: {
@@ -715,14 +761,12 @@
             ]
         };
 
-        // API ключи
         const API_KEYS = {
             YANDEX_WEATHER: '2eedcd80-4ca8-40bb-b229-b0a6e59a760e',
             OPENWEATHER: '7253447bdd5d5b3a73b932e71fcaa87b',
-            METEOSOURCE: 'slcmh6vp3ajox7vdcwbvj1u6i57r8sfomphn8l2u' // В реальном приложении нужно получить ключ
+            METEOSOURCE: 'demo'
         };
 
-        // Резервные данные для Якутии
         const BACKUP_DATA = {
             'Мирный': {
                 temp: -42,
@@ -732,7 +776,7 @@
                 wind_speed: 15,
                 weather_icon: '13d',
                 weather_description: 'снег',
-                hourly_forecast: generateHourlyForecast(-42)
+                forecast: generateForecast(-42, 15)
             },
             'Удачный': {
                 temp: -38,
@@ -742,7 +786,7 @@
                 wind_speed: 12,
                 weather_icon: '04d',
                 weather_description: 'облачно',
-                hourly_forecast: generateHourlyForecast(-38)
+                forecast: generateForecast(-38, 12)
             },
             'Айхал': {
                 temp: -35,
@@ -752,31 +796,33 @@
                 wind_speed: 8,
                 weather_icon: '01d',
                 weather_description: 'ясно',
-                hourly_forecast: generateHourlyForecast(-35)
+                forecast: generateForecast(-35, 8)
             }
         };
 
-        // Генерация почасового прогноза
-        function generateHourlyForecast(baseTemp) {
-            const forecast = [];
-            const now = new Date();
-
-            for (let i = 0; i < 24; i++) {
-                const hour = new Date(now.getTime() + i * 60 * 60 * 1000);
-                const temp = Math.round(baseTemp + (Math.random() - 0.5) * 8);
-
-                forecast.push({
-                    time: hour.getHours().toString().padStart(2, '0') + ':00',
-                    temp: temp
-                });
-            }
-
-            return forecast;
+        function generateForecast(baseTemp, baseWind) {
+            return [
+                {
+                    time: 'Через 1 час',
+                    temp: Math.round(baseTemp + (Math.random() - 0.5) * 2),
+                    wind: Math.round(baseWind + (Math.random() - 0.5) * 3)
+                },
+                {
+                    time: 'Через 6 часов',
+                    temp: Math.round(baseTemp + (Math.random() - 0.5) * 4),
+                    wind: Math.round(baseWind + (Math.random() - 0.5) * 5)
+                },
+                {
+                    time: 'Через 8 часов',
+                    temp: Math.round(baseTemp + (Math.random() - 0.5) * 5),
+                    wind: Math.round(baseWind + (Math.random() - 0.5) * 6)
+                }
+            ];
         }
 
-        // Глобальные переменные
         let weatherData = {};
         let temperatureChart = null;
+        let radarChart = null;
         let apiWorking = false;
         let lastUpdateTime = null;
         let nextUpdateTime = null;
@@ -787,7 +833,6 @@
         let yandexPlacemark = null;
         let currentDataSource = '';
 
-        // Функции работы с конфигурацией
         function loadConfig() {
             const savedConfig = localStorage.getItem('weatherAppConfig');
             const savedLocations = localStorage.getItem('customLocations');
@@ -836,7 +881,6 @@
             setupAutoUpdate();
         }
 
-        // Функции времени
         function getYakutskTime() {
             const now = new Date();
             const yakutskOffset = 9 * 60;
@@ -906,13 +950,9 @@
             }
         }
 
-        // Функции работы с API погоды
         async function fetchWeatherData() {
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
             const dataSources = appConfig.DATA_SOURCE_PRIORITY.split(',');
-
-            console.log('Запрос данных для локаций:', allLocations);
-            console.log('Приоритет источников:', dataSources);
 
             const weatherPromises = allLocations.map(location =>
                 fetchWeatherFromMultipleSources(location.lat, location.lon, location.name, dataSources)
@@ -926,12 +966,8 @@
                 weatherData[locationName] = result;
             });
 
-            // Определяем общий статус API
             apiWorking = results.some(result => !result.fromBackup);
             currentDataSource = results[0]?.dataSource || 'backup';
-
-            console.log('Результаты запросов:', weatherData);
-            console.log('API работает:', apiWorking, 'Источник:', currentDataSource);
 
             return weatherData;
         }
@@ -961,13 +997,10 @@
                         };
                     }
                 } catch (error) {
-                    console.warn(`Источник ${source} не доступен для ${locationName}:`, error);
                     continue;
                 }
             }
 
-            // Если все источники не доступны, используем резервные данные
-            console.log(`Все источники недоступны для ${locationName}, используем резервные данные`);
             return {
                 ...getBackupData(locationName),
                 dataSource: 'backup',
@@ -975,12 +1008,9 @@
             };
         }
 
-        // Яндекс Погода API
         async function fetchFromYandexWeather(lat, lon) {
             try {
                 const url = `https://api.weather.yandex.ru/v2/forecast?lat=${lat}&lon=${lon}&limit=1&hours=false&extra=false`;
-
-                console.log('Запрос к Яндекс Погоде:', url);
 
                 const response = await fetch(url, {
                     method: 'GET',
@@ -994,7 +1024,6 @@
                 }
 
                 const data = await response.json();
-                console.log('Ответ от Яндекс Погоды:', data);
 
                 const fact = data.fact;
 
@@ -1007,10 +1036,9 @@
                     weather_icon: getYandexWeatherIcon(fact.icon),
                     weather_description: getYandexWeatherDescription(fact.condition),
                     timestamp: new Date().toISOString(),
-                    hourly_forecast: generateHourlyForecast(fact.temp)
+                    forecast: generateForecast(fact.temp, fact.wind_speed)
                 };
             } catch (error) {
-                console.error('Ошибка Яндекс Погоды:', error);
                 throw error;
             }
         }
@@ -1050,7 +1078,6 @@
             return descriptionMap[condition] || condition;
         }
 
-        // OpenWeatherMap API
         async function fetchFromOpenWeather(lat, lon) {
             try {
                 const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEYS.OPENWEATHER}&units=metric&lang=ru`;
@@ -1069,17 +1096,15 @@
                     weather_icon: data.weather[0].icon,
                     weather_description: data.weather[0].description,
                     timestamp: new Date().toISOString(),
-                    hourly_forecast: generateHourlyForecast(Math.round(data.main.temp))
+                    forecast: generateForecast(Math.round(data.main.temp), data.wind.speed || 0)
                 };
             } catch (error) {
                 throw new Error('OpenWeather unavailable');
             }
         }
 
-        // MeteoSource API
         async function fetchFromMeteoSource(lat, lon) {
             try {
-                // Используем демо-ключ для примера
                 const url = `https://www.meteosource.com/api/v1/free/point?lat=${lat}&lon=${lon}&sections=current&key=${API_KEYS.METEOSOURCE}`;
 
                 const response = await fetch(url);
@@ -1096,7 +1121,7 @@
                     weather_icon: getMeteoSourceWeatherIcon(data.current.icon),
                     weather_description: data.current.summary,
                     timestamp: new Date().toISOString(),
-                    hourly_forecast: generateHourlyForecast(Math.round(data.current.temperature))
+                    forecast: generateForecast(Math.round(data.current.temperature), data.current.wind.speed || 0)
                 };
             } catch (error) {
                 throw new Error('MeteoSource unavailable');
@@ -1128,48 +1153,20 @@
                 weather_icon: data.weather_icon,
                 weather_description: data.weather_description,
                 timestamp: new Date().toISOString(),
-                hourly_forecast: data.hourly_forecast
+                forecast: data.forecast
             };
         }
 
-        // Функции оповещений и рекомендаций
-        function getAlertType(locationData) {
-            const windSpeed = locationData.wind_speed;
-            const temperature = locationData.temp;
-
-            if (windSpeed > appConfig.ALERT_THRESHOLDS.WIND_SPEED ||
-                temperature < appConfig.ALERT_THRESHOLDS.TEMPERATURE) {
-                return 'danger';
-            } else if (windSpeed > appConfig.ALERT_THRESHOLDS.WIND_SPEED - 3 ||
-                      temperature < appConfig.ALERT_THRESHOLDS.TEMPERATURE + 5) {
-                return 'warning';
+        function getAlertType(value, threshold, isWind = false) {
+            if (isWind) {
+                if (value > threshold) return 'danger';
+                if (value > threshold - 3) return 'warning';
+                return 'success';
             } else {
+                if (value < threshold) return 'danger';
+                if (value < threshold + 5) return 'warning';
                 return 'success';
             }
-        }
-
-        function getRecommendation(locationData, alertType) {
-            const windSpeed = locationData.wind_speed;
-            const temperature = locationData.temp;
-            let recommendations = [];
-
-            if (windSpeed > appConfig.ALERT_THRESHOLDS.WIND_SPEED) {
-                recommendations.push(`Взлет вертолетам ЗАПРЕЩЕН: ветер превышает ${appConfig.ALERT_THRESHOLDS.WIND_SPEED} м/с`);
-            } else if (windSpeed > appConfig.ALERT_THRESHOLDS.WIND_SPEED - 3) {
-                recommendations.push(`Ограничения для вертолетов: ветер ${windSpeed} м/с`);
-            } else {
-                recommendations.push(`Условия для полетов нормальные: ветер ${windSpeed} м/с`);
-            }
-
-            if (temperature < appConfig.ALERT_THRESHOLDS.TEMPERATURE) {
-                recommendations.push(`Работы на карьере ПРИОСТАНОВЛЕНЫ: температура ниже ${appConfig.ALERT_THRESHOLDS.TEMPERATURE}°C`);
-            } else if (temperature < appConfig.ALERT_THRESHOLDS.TEMPERATURE + 5) {
-                recommendations.push(`Ограничения для работ: температура ${temperature}°C`);
-            } else {
-                recommendations.push(`Работы разрешены: температура ${temperature}°C`);
-            }
-
-            return recommendations.join('. ');
         }
 
         function getWeatherIcon(weatherCode) {
@@ -1203,7 +1200,6 @@
             return nameMap[source] || 'Неизвестный источник';
         }
 
-        // Рендеринг интерфейса
         function renderWeatherCards() {
             const dashboard = document.getElementById('weatherDashboard');
             dashboard.innerHTML = '';
@@ -1229,39 +1225,47 @@
                 const humidity = locationData.humidity;
                 const pressure = locationData.pressure;
                 const weatherIcon = getWeatherIcon(locationData.weather_icon);
-                const hourlyForecast = locationData.hourly_forecast || [];
+                const forecast = locationData.forecast || [];
                 const dataSource = locationData.dataSource || 'backup';
 
-                const alertType = getAlertType(locationData);
-                const recommendation = getRecommendation(locationData, alertType);
+                const windAlertType = getAlertType(windSpeed, appConfig.ALERT_THRESHOLDS.WIND_SPEED, true);
+                const tempAlertType = getAlertType(temp, appConfig.ALERT_THRESHOLDS.TEMPERATURE, false);
 
-                const alertClass = `alert-${alertType}`;
-                let alertText = '';
+                const windAlertClass = windAlertType === 'success' ? 'alert-helicopter' : `alert-${windAlertType}`;
+                const tempAlertClass = `alert-${tempAlertType}`;
 
-                if (alertType === 'danger') {
-                    if (windSpeed > appConfig.ALERT_THRESHOLDS.WIND_SPEED) {
-                        alertText = `⚠️ ОПАСНО: ветер ${windSpeed} м/с превышает норму, взлет вертолетам ЗАПРЕЩЕН`;
-                    } else if (temp < appConfig.ALERT_THRESHOLDS.TEMPERATURE) {
-                        alertText = `⚠️ ОПАСНО: температура ${temp}°C ниже нормы, работы на карьере ПРИОСТАНОВЛЕНЫ`;
-                    }
-                } else if (alertType === 'warning') {
-                    alertText = '⚠️ ВНИМАНИЕ: параметры близки к критическим значениям';
+                let windAlertText = '';
+                let tempAlertText = '';
+
+                if (windAlertType === 'danger') {
+                    windAlertText = `⚠️ ВЗЛЕТ ВЕРТОЛЕТАМ ЗАПРЕЩЕН: ветер ${windSpeed} м/с превышает норму ${appConfig.ALERT_THRESHOLDS.WIND_SPEED} м/с`;
+                } else if (windAlertType === 'warning') {
+                    windAlertText = `⚠️ ОГРАНИЧЕНИЯ ДЛЯ ВЕРТОЛЕТОВ: ветер ${windSpeed} м/с близок к критическому`;
                 } else {
-                    alertText = '✅ НОРМА: условия для работ и полетов в пределах нормы';
+                    windAlertText = '✅ УСЛОВИЯ ДЛЯ ПОЛЕТОВ НОРМАЛЬНЫЕ';
+                }
+
+                if (tempAlertType === 'danger') {
+                    tempAlertText = `⚠️ РАБОТЫ ПРИОСТАНОВЛЕНЫ: температура ${temp}°C ниже нормы ${appConfig.ALERT_THRESHOLDS.TEMPERATURE}°C`;
+                } else if (tempAlertType === 'warning') {
+                    tempAlertText = `⚠️ ОГРАНИЧЕНИЯ ДЛЯ РАБОТ: температура ${temp}°C близка к критической`;
+                } else {
+                    tempAlertText = '✅ РАБОТЫ РАЗРЕШЕНЫ';
                 }
 
                 const isCustom = customLocations.some(loc => loc.name === location.name);
                 const deleteButton = isCustom ?
                     `<button class="delete-location" onclick="deleteCustomLocation('${location.name}')">🗑️</button>` : '';
 
-                const hourlyForecastHTML = hourlyForecast.length > 0 ? `
+                const forecastHTML = forecast.length > 0 ? `
                     <div class="forecast-section">
-                        <div class="forecast-title">Прогноз на 24 часа:</div>
-                        <div class="hourly-forecast">
-                            ${hourlyForecast.map(item => `
-                                <div class="hourly-item">
-                                    <div class="hourly-time">${item.time}</div>
-                                    <div class="hourly-temp">${item.temp}°C</div>
+                        <div class="forecast-title">Прогноз температуры и ветра:</div>
+                        <div class="forecast-items">
+                            ${forecast.map(item => `
+                                <div class="forecast-item">
+                                    <div class="forecast-time">${item.time}</div>
+                                    <div class="forecast-temp">${item.temp}°C</div>
+                                    <div class="forecast-wind">${item.wind} м/с</div>
                                 </div>
                             `).join('')}
                         </div>
@@ -1297,12 +1301,12 @@
                                 <span>${pressure} мм рт.ст.</span>
                             </div>
                         </div>
-                        ${hourlyForecastHTML}
-                        <div class="alert ${alertClass}">
-                            ${alertText}
+                        ${forecastHTML}
+                        <div class="alert ${windAlertClass}">
+                            ${windAlertText}
                         </div>
-                        <div class="recommendation">
-                            <strong>Рекомендация:</strong> ${recommendation}
+                        <div class="alert ${tempAlertClass}">
+                            ${tempAlertText}
                         </div>
                     </div>
                 `;
@@ -1317,7 +1321,6 @@
             }
         }
 
-        // Графики
         function createTemperatureChart() {
             const ctx = document.getElementById('temperatureChart').getContext('2d');
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
@@ -1371,6 +1374,67 @@
             });
         }
 
+        function createRadarChart() {
+            const ctx = document.getElementById('radarChart').getContext('2d');
+            const allLocations = [...appConfig.LOCATIONS, ...customLocations];
+            const labels = allLocations.map(loc => loc.name);
+
+            const datasets = [
+                {
+                    label: 'Температура',
+                    data: allLocations.map(loc =>
+                        weatherData[loc.name] ? Math.max(weatherData[loc.name].temp + 50, 0) : 0
+                    ),
+                    backgroundColor: 'rgba(231, 76, 60, 0.2)',
+                    borderColor: 'rgba(231, 76, 60, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Ветер',
+                    data: allLocations.map(loc =>
+                        weatherData[loc.name] ? Math.min(weatherData[loc.name].wind_speed * 5, 100) : 0
+                    ),
+                    backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                    borderColor: 'rgba(52, 152, 219, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Влажность',
+                    data: allLocations.map(loc =>
+                        weatherData[loc.name] ? weatherData[loc.name].humidity : 0
+                    ),
+                    backgroundColor: 'rgba(46, 204, 113, 0.2)',
+                    borderColor: 'rgba(46, 204, 113, 1)',
+                    borderWidth: 1
+                }
+            ];
+
+            if (radarChart) {
+                radarChart.destroy();
+            }
+
+            radarChart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: {
+                                display: true
+                            },
+                            suggestedMin: 0,
+                            suggestedMax: 100
+                        }
+                    }
+                }
+            });
+        }
+
         function updateApiStatus() {
             const statusElement = document.getElementById('apiStatus');
             const allLocations = [...appConfig.LOCATIONS, ...customLocations];
@@ -1403,10 +1467,8 @@
             }
         }
 
-        // Яндекс Карты
         function initYandexMap() {
             if (!ymaps) {
-                console.error('Yandex Maps API не загружена');
                 return;
             }
 
@@ -1438,8 +1500,6 @@
                     yandexPlacemark.geometry.setCoordinates(coords);
                     updateCoordinates(coords[0], coords[1]);
                 });
-
-                console.log('Яндекс Карта инициализирована');
             });
         }
 
@@ -1490,7 +1550,6 @@
             }
         }
 
-        // Основные функции приложения
         function setupAutoUpdate() {
             if (updateIntervalId) {
                 clearInterval(updateIntervalId);
@@ -1526,9 +1585,11 @@
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('weatherDashboard').style.display = 'grid';
                 document.getElementById('chartsSection').style.display = 'block';
+                document.getElementById('advancedSection').style.display = 'block';
 
                 renderWeatherCards();
                 createTemperatureChart();
+                createRadarChart();
 
             } catch (error) {
                 console.error('Error refreshing data:', error);
@@ -1538,7 +1599,6 @@
             }
         }
 
-        // Модальные окна
         function openSettingsModal() {
             document.getElementById('settingsModal').style.display = 'flex';
         }
@@ -1573,14 +1633,12 @@
             alert('Настройки успешно сохранены!');
         }
 
-        // Отладочные функции
         function resetConfig() {
             localStorage.removeItem('weatherAppConfig');
             localStorage.removeItem('customLocations');
             appConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
             customLocations = [];
             saveConfig();
-            console.log('Конфигурация сброшена к значениям по умолчанию');
             location.reload();
         }
 
@@ -1597,11 +1655,8 @@
             document.querySelector('.control-buttons').appendChild(debugBtn);
         }
 
-        // Инициализация приложения
         async function initializeApp() {
             try {
-                console.log('Инициализация приложения...');
-
                 loadConfig();
                 applyConfigToUI();
 
@@ -1618,9 +1673,11 @@
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('weatherDashboard').style.display = 'grid';
                 document.getElementById('chartsSection').style.display = 'block';
+                document.getElementById('advancedSection').style.display = 'block';
 
                 renderWeatherCards();
                 createTemperatureChart();
+                createRadarChart();
 
                 addDebugButton();
 
@@ -1632,14 +1689,15 @@
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('weatherDashboard').style.display = 'grid';
                 document.getElementById('chartsSection').style.display = 'block';
+                document.getElementById('advancedSection').style.display = 'block';
 
                 updateApiStatus();
                 renderWeatherCards();
                 createTemperatureChart();
+                createRadarChart();
             }
         }
 
-        // Обработчики событий
         document.getElementById('refreshBtn').addEventListener('click', refreshData);
         document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
         document.getElementById('mapBtn').addEventListener('click', openMapModal);
@@ -1658,7 +1716,6 @@
             if (e.target === this) closeMapModal();
         });
 
-        // Запуск приложения
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
 
@@ -1674,7 +1731,6 @@
             setInterval(updateNextUpdateInfo, 1000);
         });
 
-        // Глобальные функции
         window.deleteCustomLocation = deleteCustomLocation;
     </script>
 </body>
