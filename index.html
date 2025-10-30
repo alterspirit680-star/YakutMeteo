@@ -101,9 +101,6 @@
             gap: 8px;
         }
 
-        /* В разделе стилей добавляем: */
-        .source-weathernews { background-color: #e67e22; } /* Оранжевый для WeatherNews */
-
         .btn-map {
             background-color: var(--success);
             color: white;
@@ -696,17 +693,13 @@
                 <div class="settings-row">
                     <div class="settings-label">Приоритет источников:</div>
                     <div class="settings-control">
-                        // Обновляем select в модальном окне настроек
-                        // В HTML замените существующий select на этот:
                         <select id="dataSourcePriority">
-                            <option value="yandex,openweather,meteosource,weathernews">Яндекс → OpenWeather → MeteoSource → WeatherNews</option>
-                            <option value="yandex,weathernews,openweather,meteosource">Яндекс → WeatherNews → OpenWeather → MeteoSource</option>
-                            <option value="weathernews,yandex,openweather,meteosource">WeatherNews → Яндекс → OpenWeather → MeteoSource</option>
-                            <option value="weathernews,openweather,yandex,meteosource">WeatherNews → OpenWeather → Яндекс → MeteoSource</option>
-                            <option value="openweather,yandex,meteosource,weathernews">OpenWeather → Яндекс → MeteoSource → WeatherNews</option>
-                            <option value="openweather,meteosource,yandex,weathernews">OpenWeather → MeteoSource → Яндекс → WeatherNews</option>
-                            <option value="meteosource,yandex,openweather,weathernews">MeteoSource → Яндекс → OpenWeather → WeatherNews</option>
-                            <option value="meteosource,openweather,yandex,weathernews">MeteoSource → OpenWeather → Яндекс → WeatherNews</option>
+                            <option value="yandex,openweather,meteosource">Яндекс → OpenWeather → MeteoSource</option>
+                            <option value="yandex,openweather,meteosource">Яндекс → OpenWeather → MeteoSource</option>
+                            <option value="openweather,yandex,meteosource">OpenWeather → Яндекс → MeteoSource</option>
+                            <option value="openweather,meteosource,yandex">OpenWeather → MeteoSource → Яндекс</option>
+                            <option value="meteosource,yandex,openweather">MeteoSource → Яндекс → OpenWeather</option>
+                            <option value="meteosource,openweather,yandex">MeteoSource → OpenWeather → Яндекс</option>
                         </select>
                     </div>
                 </div>
@@ -760,7 +753,7 @@
                 WIND_SPEED: 15,
                 TEMPERATURE: -45
             },
-            DATA_SOURCE_PRIORITY: "yandex,openweather,meteosource, weathernews",
+            DATA_SOURCE_PRIORITY: "yandex,openweather,meteosource",
             LOCATIONS: [
                 { name: 'Мирный', lat: 62.5343, lon: 113.9610 },
                 { name: 'Удачный', lat: 66.4166, lon: 112.4000 },
@@ -772,7 +765,6 @@
             YANDEX_WEATHER: '2eedcd80-4ca8-40bb-b229-b0a6e59a760e',
             OPENWEATHER: '7253447bdd5d5b3a73b932e71fcaa87b',
             METEOSOURCE: 'demo'
-            WEATHERNEWS: 'direct_parsing'
         };
 
         const BACKUP_DATA = {
@@ -1159,200 +1151,6 @@
             return iconMap[iconCode] || '02d';
         }
 
-        // Добавляем после существующих функций API
-        async function fetchFromWeatherNews(locationName, weathernewsId = null) {
-            try {
-                // Если не указан конкретный ID, используем название локации для поиска
-                const locationSlug = weathernewsId || generateWeatherNewsSlug(locationName);
-
-                // URL для парсинга - используем русскую версию сайта
-                const url = `https://weathernews.com/ru/russia/${locationSlug}/`;
-
-                console.log(`Парсинг WeatherNews для: ${locationName}, URL: ${url}`);
-
-                // Используем CORS proxy для обхода ограничений браузера
-                const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-                const response = await fetch(proxyUrl + url, {
-                    method: 'GET',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`WeatherNews HTTP error: ${response.status}`);
-                }
-
-                const html = await response.text();
-                return parseWeatherNewsHTML(html, locationName);
-
-            } catch (error) {
-                console.error(`Ошибка парсинга WeatherNews для ${locationName}:`, error);
-                throw new Error('WeatherNews unavailable');
-            }
-        }
-
-        // Генерация slug для URL based on location name
-        function generateWeatherNewsSlug(locationName) {
-            const slugMap = {
-                'Мирный': 'mirnyj',
-                'Удачный': 'udachny',
-                'Айхал': 'ajhal',
-                'Якутск': 'yakutsk',
-                'Ленск': 'lensk',
-                'Нерюнгри': 'nerjungri'
-            };
-
-            return slugMap[locationName] || locationName.toLowerCase().replace(/\s+/g, '-');
-        }
-
-        // Парсинг HTML страницы WeatherNews
-        function parseWeatherNewsHTML(html, locationName) {
-            // Создаем временный DOM для парсинга
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-
-            // Парсим температуру
-            const tempElement = doc.querySelector('.current-temp, .temp, [class*="temperature"], .wx-temp');
-            let temperature = -35; // значение по умолчанию
-
-            if (tempElement) {
-                const tempText = tempElement.textContent.trim();
-                const tempMatch = tempText.match(/(-?\d+)/);
-                if (tempMatch) {
-                    temperature = parseInt(tempMatch[1]);
-                }
-            }
-
-            // Парсим описание погоды
-            const descElement = doc.querySelector('.wx-condition, .weather-desc, [class*="condition"], .wx-desc');
-            let description = 'ясно';
-
-            if (descElement) {
-                description = descElement.textContent.trim().toLowerCase();
-            }
-
-            // Парсим ветер
-            const windElement = doc.querySelector('.wx-wind, .wind-speed, [class*="wind"]');
-            let windSpeed = 5;
-
-            if (windElement) {
-                const windText = windElement.textContent.trim();
-                const windMatch = windText.match(/(\d+)\s*(км\/ч|м\/с|km\/h)/);
-                if (windMatch) {
-                    windSpeed = parseInt(windMatch[1]);
-                    // Конвертируем км/ч в м/с если нужно
-                    if (windText.includes('км/ч') || windText.includes('km/h')) {
-                        windSpeed = Math.round(windSpeed / 3.6);
-                    }
-                }
-            }
-
-            // Парсим влажность
-            const humidityElement = doc.querySelector('.wx-humidity, .humidity, [class*="humidity"]');
-            let humidity = 70;
-
-            if (humidityElement) {
-                const humidityText = humidityElement.textContent.trim();
-                const humidityMatch = humidityText.match(/(\d+)%/);
-                if (humidityMatch) {
-                    humidity = parseInt(humidityMatch[1]);
-                }
-            }
-
-            // Парсим давление
-            const pressureElement = doc.querySelector('.wx-pressure, .pressure, [class*="pressure"]');
-            let pressure = 760;
-
-            if (pressureElement) {
-                const pressureText = pressureElement.textContent.trim();
-                const pressureMatch = pressureText.match(/(\d+)/);
-                if (pressureMatch) {
-                    pressure = parseInt(pressureMatch[1]);
-                }
-            }
-
-            // Маппинг описаний на иконки
-            const iconMap = {
-                'ясно': '01d',
-                'солнечно': '01d',
-                'облачно': '04d',
-                'пасмурно': '04d',
-                'дождь': '10d',
-                'снег': '13d',
-                'туман': '50d',
-                'гроза': '11d'
-            };
-
-            const weatherIcon = getWeatherNewsIcon(description, iconMap);
-
-            return {
-                temp: temperature,
-                feels_like: calculateFeelsLike(temperature, windSpeed, humidity),
-                humidity: humidity,
-                pressure: pressure,
-                wind_speed: windSpeed,
-                weather_icon: weatherIcon,
-                weather_description: description,
-                timestamp: new Date().toISOString(),
-                forecast: generateForecast(temperature, windSpeed)
-            };
-        }
-
-        // Функция для маппинга описаний WeatherNews на иконки
-        function getWeatherNewsIcon(description, iconMap) {
-            const desc = description.toLowerCase();
-
-            if (desc.includes('ясно') || desc.includes('солнечно')) return '01d';
-            if (desc.includes('снег')) return '13d';
-            if (desc.includes('дождь')) return '10d';
-            if (desc.includes('облачно') || desc.includes('пасмурно')) return '04d';
-            if (desc.includes('туман')) return '50d';
-            if (desc.includes('гроза')) return '11d';
-
-            return '02d'; // по умолчанию
-        }
-
-        // Расчет ощущаемой температуры
-        function calculateFeelsLike(temp, windSpeed, humidity) {
-            // Упрощенная формула wind chill для отрицательных температур
-            if (temp <= 10 && windSpeed > 1.34) {
-                return Math.round(13.12 + 0.6215 * temp - 11.37 * Math.pow(windSpeed, 0.16) + 0.3965 * temp * Math.pow(windSpeed, 0.16));
-            }
-            return temp;
-        }
-
-        // Альтернативная функция на случай блокировки CORS
-        async function fetchFromWeatherNewsBackup(locationName) {
-            // Используем мок-данные based on location
-            const mockData = {
-                'Мирный': { temp: -42, wind: 12, humidity: 75, pressure: 765, desc: 'снег' },
-                'Удачный': { temp: -38, wind: 8, humidity: 80, pressure: 768, desc: 'облачно' },
-                'Айхал': { temp: -35, wind: 5, humidity: 70, pressure: 770, desc: 'ясно' }
-            };
-
-            const data = mockData[locationName] || mockData['Мирный'];
-
-            // Добавляем случайные вариации для реалистичности
-            const variation = (Math.random() - 0.5) * 4;
-
-            return {
-                temp: data.temp + Math.round(variation),
-                feels_like: data.temp + Math.round(variation) - 5,
-                humidity: data.humidity + Math.round((Math.random() - 0.5) * 10),
-                pressure: data.pressure + Math.round((Math.random() - 0.5) * 5),
-                wind_speed: data.wind + Math.round(Math.random() * 3),
-                weather_icon: getWeatherNewsIcon(data.desc),
-                weather_description: data.desc,
-                timestamp: new Date().toISOString(),
-                forecast: generateForecast(data.temp + Math.round(variation), data.wind)
-            };
-        }
-
         function getBackupData(locationName) {
             const data = BACKUP_DATA[locationName] || BACKUP_DATA['Мирный'];
             return {
@@ -1396,7 +1194,6 @@
                 'yandex': 'source-yandex',
                 'openweather': 'source-openweather',
                 'meteosource': 'source-meteosource',
-                'weathernews': 'source-weathernews', // Добавляем новый цвет
                 'backup': 'source-backup'
             };
             return colorMap[source] || 'source-backup';
@@ -1407,7 +1204,6 @@
                 'yandex': 'Яндекс Погода',
                 'openweather': 'OpenWeather',
                 'meteosource': 'MeteoSource',
-                'weathernews': 'WeatherNews', // Добавляем новое имя
                 'backup': 'Резервные данные'
             };
             return nameMap[source] || 'Неизвестный источник';
