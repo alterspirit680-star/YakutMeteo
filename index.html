@@ -1642,18 +1642,7 @@
             location.reload();
         }
 
-        function addDebugButton() {
-            const debugBtn = document.createElement('button');
-            debugBtn.textContent = 'Сбросить настройки';
-            debugBtn.className = 'btn btn-outline';
-            debugBtn.style.marginLeft = '10px';
-            debugBtn.onclick = function() {
-                if (confirm('Сбросить все настройки к значениям по умолчанию?')) {
-                    resetConfig();
-                }
-            };
-            document.querySelector('.control-buttons').appendChild(debugBtn);
-        }
+
 
         async function initializeApp() {
             try {
@@ -1679,7 +1668,7 @@
                 createTemperatureChart();
                 createRadarChart();
 
-                addDebugButton();
+
 
             } catch (error) {
                 console.error('Error initializing app:', error);
